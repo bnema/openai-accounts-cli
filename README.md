@@ -10,31 +10,26 @@
 - Fetches daily and weekly usage limits from OpenAI
 - Renders human-readable or JSON output
 
-## Quickstart
+## Install
 
 ```bash
-go build ./...
-go run . version
+go install github.com/bnema/openai-accounts-cli@latest
 ```
 
 ### Auth setup
 
 ```bash
-go run . auth set \
-  --account 0 \
-  --method chatgpt \
-  --secret-key openai://1/oauth_tokens \
-  --secret-value '{"access_token":"...","id_token":"..."}'
+oa auth login browser
 ```
 
 ### Usage
 
 ```bash
 # Fetch limits
-go run . usage --account 1
+oa usage --account 1
 
 # JSON output
-go run . status --account 1 --json
+oa status --account 1 --json
 ```
 
 ## Commands
@@ -42,7 +37,7 @@ go run . status --account 1 --json
 | Command | Description |
 |---------|-------------|
 | `oa auth set\|remove` | Manage authentication |
-| `oa login browser\|device` | Login flows |
+| `oa auth login browser\|device` | Login flows |
 | `oa usage [--account <id>] [--json]` | Fetch usage limits |
 | `oa status [--account <id>] [--json]` | Alias for usage |
 | `oa account list` | List accounts |

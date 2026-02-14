@@ -99,7 +99,7 @@ func TestLoginDeviceReturnsNotImplemented(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeAccountsFixture(home))
 
-	_, _, err := executeCLI(t, home, "login", "device")
+	_, _, err := executeCLI(t, home, "auth", "login", "device")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not implemented yet")
 }
@@ -269,7 +269,7 @@ func TestUsageCommandReturnsFetchError(t *testing.T) {
 	_, _, err = executeCLI(t, home, "usage", "--account", "acc-1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "session expired")
-	assert.Contains(t, err.Error(), "oa login browser --account acc-1")
+	assert.Contains(t, err.Error(), "oa auth login browser --account acc-1")
 }
 
 func TestUsageCommandUpdatesAccountNameFromTokenEmail(t *testing.T) {

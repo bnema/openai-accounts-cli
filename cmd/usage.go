@@ -133,7 +133,7 @@ func fetchAndPersistLimits(ctx context.Context, app *app, account domain.Account
 	payload, err := fetchUsagePayload(ctx, app.httpClient, app.usageBaseURL, tokens)
 	if err != nil {
 		if errors.Is(err, errUsageSessionExpired) {
-			return fmt.Errorf("account %s: session expired, please re-login with `oa login browser --account %s`", account.ID, account.ID)
+			return fmt.Errorf("account %s: session expired, please re-login with `oa auth login browser --account %s`", account.ID, account.ID)
 		}
 		return fmt.Errorf("account %s: fetch usage: %w", account.ID, err)
 	}
