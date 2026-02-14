@@ -13,7 +13,7 @@
 ## Install
 
 ```bash
-go install github.com/bnema/openai-accounts-cli@latest
+go install github.com/bnema/openai-accounts-cli/cmd/oa@latest
 ```
 
 ### Auth setup
@@ -25,7 +25,10 @@ oa auth login browser
 ### Usage
 
 ```bash
-# Fetch limits
+# Fetch limits for all accounts
+oa usage
+
+# Fetch limits for specific account
 oa usage --account 1
 
 # JSON output
@@ -38,7 +41,7 @@ oa status --account 1 --json
 |---------|-------------|
 | `oa auth set\|remove` | Manage authentication |
 | `oa auth login browser\|device` | Login flows |
-| `oa usage [--account <id>] [--json]` | Fetch usage limits |
+| `oa usage [--account <id>] [--json]` | Fetch usage limits (all accounts if no ID specified) |
 | `oa status [--account <id>] [--json]` | Alias for usage |
 | `oa account list` | List accounts |
 | `oa version` | Print version |
