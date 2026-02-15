@@ -134,9 +134,15 @@ func TestUsageSetSubcommandIsRemoved(t *testing.T) {
 
 func TestUsageCommandFetchesLimitsAndRendersStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/wham/usage", r.URL.Path)
-		assert.Equal(t, "Bearer access-token-123", r.Header.Get("Authorization"))
-		_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":21,"limit_window_seconds":18000,"reset_after_seconds":120,"reset_at":1893456000},"secondary_window":{"used_percent":47,"limit_window_seconds":604800,"reset_after_seconds":3600,"reset_at":1893888000}}}`)
+		switch {
+		case r.URL.Path == "/wham/usage":
+			assert.Equal(t, "Bearer access-token-123", r.Header.Get("Authorization"))
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":21,"limit_window_seconds":18000,"reset_after_seconds":120,"reset_at":1893456000},"secondary_window":{"used_percent":47,"limit_window_seconds":604800,"reset_after_seconds":3600,"reset_at":1893888000}}}`)
+		case r.URL.Path == "/subscriptions":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer server.Close()
 
@@ -164,9 +170,15 @@ func TestUsageCommandFetchesLimitsAndRendersStatus(t *testing.T) {
 
 func TestStatusAliasFetchesLimitsAndRendersStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/wham/usage", r.URL.Path)
-		assert.Equal(t, "Bearer access-token-123", r.Header.Get("Authorization"))
-		_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":21,"limit_window_seconds":18000,"reset_after_seconds":120,"reset_at":1893456000},"secondary_window":{"used_percent":47,"limit_window_seconds":604800,"reset_after_seconds":3600,"reset_at":1893888000}}}`)
+		switch {
+		case r.URL.Path == "/wham/usage":
+			assert.Equal(t, "Bearer access-token-123", r.Header.Get("Authorization"))
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":21,"limit_window_seconds":18000,"reset_after_seconds":120,"reset_at":1893456000},"secondary_window":{"used_percent":47,"limit_window_seconds":604800,"reset_after_seconds":3600,"reset_at":1893888000}}}`)
+		case r.URL.Path == "/subscriptions":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer server.Close()
 
