@@ -8,6 +8,8 @@
 - Stores secrets via `pass`, with file fallback at `~/.codex/secrets`
 - Supports API key and ChatGPT OAuth token auth
 - Fetches daily and weekly usage limits from OpenAI
+- Shows subscription renewal countdown (when the subscription renews or expires)
+- Highlights accounts with exhausted weekly limits
 - Renders human-readable or JSON output
 
 ## Install
@@ -41,7 +43,7 @@ oa status --account 1 --json
 |---------|-------------|
 | `oa auth set\|remove` | Manage authentication |
 | `oa auth login browser\|device` | Login flows |
-| `oa usage [--account <id>] [--json]` | Fetch usage limits (all accounts if no ID specified) |
+| `oa usage [--account <id>] [--json]` | Fetch usage limits and subscription renewal info (all accounts if no ID specified) |
 | `oa status [--account <id>] [--json]` | Alias for usage |
 | `oa account list` | List accounts |
 | `oa version` | Print version |
