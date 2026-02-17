@@ -10,6 +10,7 @@
 - Fetches daily and weekly usage limits from OpenAI
 - Shows subscription renewal countdown (when the subscription renews or expires)
 - Highlights accounts with exhausted weekly limits
+- Recommends which account to use first (prioritizes by weekly usage pressure)
 - Renders human-readable or JSON output
 
 ## Install
