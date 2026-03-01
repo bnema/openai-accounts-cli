@@ -178,14 +178,16 @@ func (s *Service) RemoveAccount(ctx context.Context, id domain.AccountID) error 
 
 	secretRefs := uniqueSecretRefs(account.Metadata.SecretRef, account.Auth.SecretRef)
 
-	if err := s.repo.Delete(ctx, id); err != nil {
-		return fmt.Errorf("delete account: %w", err)
-	}
-
+	// Delete secrets first so that a failure leaves the account intact and
+	// retryable, rather than orphaning credentials with no owning account.
 	for _, secretRef := range secretRefs {
 		if err := s.store.Delete(ctx, secretRef); err != nil {
 			return fmt.Errorf("delete account secret %q: %w", secretRef, err)
 		}
+	}
+
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete account: %w", err)
 	}
 
 	return nil

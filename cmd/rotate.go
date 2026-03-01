@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,10 +10,14 @@ import (
 
 	statusrender "github.com/bnema/openai-accounts-cli/internal/adapters/render/status"
 	"github.com/bnema/openai-accounts-cli/internal/application"
+	"github.com/bnema/openai-accounts-cli/internal/domain"
 	"github.com/spf13/cobra"
 )
 
-const opencodeAuthProvider = "codex"
+const (
+	opencodeAuthProvider = "codex"
+	rotateStaleThreshold = 6 * time.Hour
+)
 
 // opencodeAuthEntry matches the shape opencode expects in auth.json.
 type opencodeAuthEntry struct {
@@ -52,23 +57,37 @@ func newRotateOpencodeCmd(app *app) *cobra.Command {
 				return fmt.Errorf("no accounts configured")
 			}
 
-			// Find the first account that has auth credentials.
+			// Pick the first non-stale account that has valid credentials.
 			var chosenStatus application.Status
 			var chosenTokens oauthTokens
 			var found bool
+			var lastErr error
+
 			for _, status := range ordered {
+				// Skip accounts with stale limit data — their usage state is
+				// unknown and they should not be rotated into active use.
+				if isStatusStale(status, now, rotateStaleThreshold) {
+					lastErr = fmt.Errorf("account [%s] %s: limit data is stale", status.Account.ID, status.Account.Name)
+					continue
+				}
+
 				secretRef := status.Account.Auth.SecretRef
 				if secretRef == "" {
 					continue
 				}
+
 				secretValue, getErr := app.secretStore.Get(ctx, secretRef)
 				if getErr != nil {
+					lastErr = fmt.Errorf("account [%s] %s: load secret: %w", status.Account.ID, status.Account.Name, getErr)
 					continue
 				}
+
 				tokens, decErr := decodeOAuthTokens(secretValue)
 				if decErr != nil {
+					lastErr = fmt.Errorf("account [%s] %s: decode tokens: %w", status.Account.ID, status.Account.Name, decErr)
 					continue
 				}
+
 				chosenStatus = status
 				chosenTokens = tokens
 				found = true
@@ -76,6 +95,9 @@ func newRotateOpencodeCmd(app *app) *cobra.Command {
 			}
 
 			if !found {
+				if lastErr != nil {
+					return fmt.Errorf("no account with valid credentials found (last error: %w)", lastErr)
+				}
 				return fmt.Errorf("no account with valid credentials found")
 			}
 
@@ -117,6 +139,29 @@ func newRotateOpencodeCmd(app *app) *cobra.Command {
 	}
 }
 
+// isStatusStale returns true if any available limit snapshot is older than maxAge.
+// An account with no limit data at all is also considered stale.
+func isStatusStale(status application.Status, now time.Time, maxAge time.Duration) bool {
+	hasAny := false
+
+	check := func(snapshot *application.StatusLimit) bool {
+		if snapshot == nil {
+			return false
+		}
+		hasAny = true
+		return (domain.LimitSnapshot{AsOf: snapshot.CapturedAt}).IsStale(now, maxAge)
+	}
+
+	if check(status.DailyLimit) {
+		return true
+	}
+	if check(status.WeeklyLimit) {
+		return true
+	}
+
+	return !hasAny
+}
+
 func opencodeAuthPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -127,9 +172,13 @@ func opencodeAuthPath() (string, error) {
 
 // writeOpencodeAuthEntry reads auth.json, upserts the given provider key, and writes it back.
 func writeOpencodeAuthEntry(path, provider string, entry opencodeAuthEntry) error {
-	// Read existing file (tolerate missing).
 	raw := map[string]json.RawMessage{}
-	if data, err := os.ReadFile(path); err == nil {
+
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read opencode auth file: %w", err)
+	}
+	if err == nil {
 		if err := json.Unmarshal(data, &raw); err != nil {
 			return fmt.Errorf("decode opencode auth file: %w", err)
 		}
