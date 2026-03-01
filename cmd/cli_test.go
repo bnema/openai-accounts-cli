@@ -307,7 +307,7 @@ func TestUsageCommandUpdatesAccountNameFromTokenEmail(t *testing.T) {
 
 	stdout, _, err := executeCLI(t, home, "usage", "--account", "acc-1")
 	require.NoError(t, err)
-	assert.Contains(t, stdout, "Account: email@adress.com (Team)")
+	assert.Contains(t, stdout, "Account #acc-1: email@adress.com (Team)")
 }
 
 func TestUsageCommandRefreshesExpiredAccessTokenAndRetries(t *testing.T) {

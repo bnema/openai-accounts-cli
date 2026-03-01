@@ -240,9 +240,9 @@ func TestRenderPrioritizesAccountsForWeeklyUsage(t *testing.T) {
 	assert.Contains(t, output, "next:")
 	assert.NotContains(t, output, "recommendation: use Account:")
 
-	bestIndex := strings.Index(output, "Account: best@example.com")
-	midIndex := strings.Index(output, "Account: mid@example.com")
-	blockedIndex := strings.Index(output, "Account: blocked@example.com")
+	bestIndex := strings.Index(output, "Account #acc-best: best@example.com")
+	midIndex := strings.Index(output, "Account #acc-mid: mid@example.com")
+	blockedIndex := strings.Index(output, "Account #acc-blocked: blocked@example.com")
 
 	require.NotEqual(t, -1, bestIndex)
 	require.NotEqual(t, -1, midIndex)

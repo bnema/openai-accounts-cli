@@ -473,7 +473,7 @@ func accountTitle(name string, id domain.AccountID, planType string) string {
 	trimmed := strings.TrimSpace(name)
 	if strings.Contains(trimmed, "@") {
 		classification := domain.AccountClassification(planType)
-		return fmt.Sprintf("Account: %s (%s)", trimmed, classification)
+		return fmt.Sprintf("Account #%s: %s (%s)", id, trimmed, classification)
 	}
 	return fmt.Sprintf("%s (%s)", trimmed, id)
 }
