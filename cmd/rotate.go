@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,9 +48,26 @@ func newRotateOpencodeCmd(app *app) *cobra.Command {
 			ctx := cmd.Context()
 			now := app.now()
 
+			// Fetch fresh limit data before picking the best account.
 			statuses, err := app.service.GetStatusAll(ctx)
 			if err != nil {
 				return fmt.Errorf("load account statuses: %w", err)
+			}
+
+			chatgptAccounts := filterChatGPTAccounts(statuses)
+			if len(chatgptAccounts) > 0 {
+				fetchCmd := func(ctx context.Context) error {
+					return fetchAccountsConcurrently(ctx, app, chatgptAccounts, cmd.ErrOrStderr())
+				}
+				if err := runUsageFetchSpinner(ctx, cmd.ErrOrStderr(), fetchCmd); err != nil {
+					return fmt.Errorf("fetch account limits: %w", err)
+				}
+				// Reload after fetch so priority uses fresh data.
+				statuses, err = app.service.GetStatusAll(ctx)
+				if err != nil {
+					return fmt.Errorf("reload account statuses: %w", err)
+				}
+				now = app.now()
 			}
 
 			ordered := statusrender.PrioritizeStatuses(statuses, now)
