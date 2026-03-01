@@ -170,6 +170,27 @@ func applySecretRefs(account *domain.Account, secretRefs []string) {
 	}
 }
 
+func (s *Service) RemoveAccount(ctx context.Context, id domain.AccountID) error {
+	account, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get account by id: %w", err)
+	}
+
+	secretRefs := uniqueSecretRefs(account.Metadata.SecretRef, account.Auth.SecretRef)
+
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+
+	for _, secretRef := range secretRefs {
+		if err := s.store.Delete(ctx, secretRef); err != nil {
+			return fmt.Errorf("delete account secret %q: %w", secretRef, err)
+		}
+	}
+
+	return nil
+}
+
 func (s *Service) SetUsage(ctx context.Context, id domain.AccountID, usage domain.Usage) error {
 	account, err := s.repo.GetByID(ctx, id)
 	if err != nil {

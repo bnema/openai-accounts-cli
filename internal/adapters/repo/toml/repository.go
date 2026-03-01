@@ -159,6 +159,43 @@ func (r *Repository) List(ctx context.Context) ([]domain.Account, error) {
 	return accounts, nil
 }
 
+func (r *Repository) Delete(ctx context.Context, id domain.AccountID) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	file, err := r.readSchema()
+	if err != nil {
+		return err
+	}
+	file.applyDefaults()
+
+	found := false
+	filtered := file.Accounts[:0]
+	for _, entry := range file.Accounts {
+		if entry.ID == string(id) {
+			found = true
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+
+	if !found {
+		return domain.ErrAccountNotFound
+	}
+
+	file.Accounts = filtered
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	return r.writeSchema(file)
+}
+
 func (r *Repository) readSchema() (fileSchema, error) {
 	data, err := os.ReadFile(r.accountsPath)
 	if err != nil {
