@@ -28,6 +28,7 @@ func newRootCmd() *cobra.Command {
 		newAccountCmd(app),
 		newAuthCmd(app),
 		newUsageCmd(app),
+		newRotateCmd(app),
 	)
 
 	return rootCmd

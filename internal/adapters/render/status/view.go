@@ -141,6 +141,12 @@ type accountPriority struct {
 	sortKey           string
 }
 
+// PrioritizeStatuses returns a copy of statuses sorted by account priority:
+// available accounts first, then by weekly pressure, capacity, and reset time.
+func PrioritizeStatuses(statuses []application.Status, now time.Time) []application.Status {
+	return prioritizeStatuses(statuses, now)
+}
+
 func prioritizeStatuses(statuses []application.Status, now time.Time) []application.Status {
 	ordered := append([]application.Status(nil), statuses...)
 
