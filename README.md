@@ -1,17 +1,16 @@
 # openai-accounts-cli (oa)
 
-**oa** helps keeping track of usage across multiple OpenAI accounts.
+**oa** tracks usage and rotates auth across multiple OpenAI accounts.
 
 ## What it does
 
-- Stores per-account auth references in `~/.codex/accounts.toml`
+- Stores per-account auth in `~/.codex/accounts.toml`
 - Stores secrets via `pass`, with file fallback at `~/.codex/secrets`
-- Supports API key and ChatGPT OAuth token auth
+- Supports API key and ChatGPT OAuth auth
 - Fetches daily and weekly usage limits from OpenAI
-- Shows subscription renewal countdown (when the subscription renews or expires)
-- Highlights accounts with exhausted weekly limits
-- Recommends which account to use first (prioritizes by weekly usage pressure)
-- Renders human-readable or JSON output
+- Recommends which account to use based on weekly pressure
+- Shows subscription renewal countdowns
+- Rotates credentials into external tools (opencode)
 
 ## Install
 
@@ -19,34 +18,17 @@
 go install github.com/bnema/openai-accounts-cli/cmd/oa@latest
 ```
 
-### Auth setup
-
-```bash
-oa auth login browser
-```
-
-### Usage
-
-```bash
-# Fetch limits for all accounts
-oa usage
-
-# Fetch limits for specific account
-oa usage --account 1
-
-# JSON output
-oa status --account 1 --json
-```
-
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `oa auth set\|remove` | Manage authentication |
-| `oa auth login browser\|device` | Login flows |
-| `oa usage [--account <id>] [--json]` | Fetch usage limits and subscription renewal info (all accounts if no ID specified) |
-| `oa status [--account <id>] [--json]` | Alias for usage |
 | `oa account list` | List accounts |
+| `oa account remove <id>` | Delete an account and its credentials |
+| `oa auth login browser\|device` | OAuth login flow |
+| `oa auth set` | Set account credentials manually |
+| `oa auth remove` | Clear account credentials |
+| `oa usage [--account <id>] [--json]` | Fetch usage limits (all accounts if no ID given) |
+| `oa rotate opencode` | Patch opencode's codex auth with the best available account |
 | `oa version` | Print version |
 
 ## Configuration
@@ -54,20 +36,13 @@ oa status --account 1 --json
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OA_AUTH_ISSUER` | `https://auth.openai.com` | Auth issuer endpoint |
-| `OA_AUTH_CLIENT_ID` | Embedded in source | OAuth client identifier |
-| `OA_AUTH_LISTEN` | `127.0.0.1:1455` | Local listener address |
+| `OA_AUTH_CLIENT_ID` | Embedded in source | OAuth client ID |
+| `OA_AUTH_LISTEN` | `127.0.0.1:1455` | Local callback listener |
 | `OA_USAGE_BASE_URL` | `https://chatgpt.com/backend-api` | Usage API base URL |
-
-## Project layout
-
-- **`cmd/`** — Cobra command definitions and app wiring
-- **`internal/application/`** — Orchestration and use-case logic
-- **`internal/domain/`** — Entities, validation, and business rules
-- **`internal/ports/`** — Repository, secret-store, and clock interfaces
-- **`internal/adapters/`** — TOML, secret stores, rendering, and auth adapters
 
 ## Development
 
 ```bash
 go test ./...
+go build -o oa ./cmd/oa
 ```
