@@ -27,6 +27,7 @@ go install github.com/bnema/openai-accounts-cli/cmd/oa@latest
 | `oa auth login browser\|device` | OAuth login flow |
 | `oa auth set` | Set account credentials manually |
 | `oa auth remove` | Clear account credentials |
+| `oa auth check [--account <id>]` | Verify OAuth session validity |
 | `oa usage [--account <id>] [--json]` | Fetch usage limits (all accounts if no ID given) |
 | `oa rotate opencode` | Patch opencode's codex auth with the best available account |
 | `oa version` | Print version |
