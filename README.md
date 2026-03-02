@@ -27,7 +27,7 @@ go install github.com/bnema/openai-accounts-cli/cmd/oa@latest
 | `oa auth check [--account <id>]` | Verify OAuth session validity for ChatGPT accounts |
 | `oa auth login browser [--account <id>]` | Start browser OAuth login flow |
 | `oa auth login device [--account <id>]` | Start device OAuth login flow *(not implemented)* |
-| `oa auth set --method api_key\|chatgpt --secret-key <key> --secret-value <val> [--account <id>]` | Set account credentials manually |
+| `oa auth set [--account <id>]` | Set account credentials manually (`--method`, `--secret-key`, `--secret-value`) |
 | `oa auth remove --account <id>` | Remove account credentials |
 | `oa usage [--account <id>] [--json]` | Fetch and display usage limits (alias: `status`) |
 | `oa rotate opencode` | Patch opencode's codex auth with the best available account |
