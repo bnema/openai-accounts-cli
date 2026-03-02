@@ -550,12 +550,12 @@ func TestAuthCheckFailsForExpiredSession(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	stdout, _, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
+	_, stderr, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
 	require.Error(t, err)
-	assert.Contains(t, stdout, "session expired")
+	assert.Contains(t, stderr, "session expired")
 }
 
-func TestAuthCheckShowsTokenExpiryInfo(t *testing.T) {
+func TestAuthCheckReportsOKAfterSuccessfulFetch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/wham/usage" {
 			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":20,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":50,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
@@ -570,21 +570,19 @@ func TestAuthCheckShowsTokenExpiryInfo(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeAccountsFixture(home))
 
-	expiresAt := time.Now().Add(2 * time.Hour).Unix()
-	secretValue := fmt.Sprintf(`{"access_token":"valid-token","id_token":"","expires_at":%d}`, expiresAt)
-
 	_, _, err := executeCLI(t, home,
 		"auth", "set",
 		"--account", "acc-1",
 		"--method", "chatgpt",
 		"--secret-key", "openai://acc-1/oauth_tokens",
-		"--secret-value", secretValue,
+		"--secret-value", `{"access_token":"valid-token","id_token":""}`,
 	)
 	require.NoError(t, err)
 
 	stdout, _, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
 	require.NoError(t, err)
-	assert.Contains(t, stdout, "expires")
+	assert.Contains(t, stdout, "ok")
+	assert.Contains(t, stdout, "acc-1")
 }
 
 func TestAuthCheckSkipsNonChatGPTAccount(t *testing.T) {
@@ -602,5 +600,5 @@ func TestAuthCheckSkipsNonChatGPTAccount(t *testing.T) {
 
 	stdout, _, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
 	require.NoError(t, err)
-	assert.Contains(t, stdout, "skip")
+	assert.Contains(t, stdout, "no ChatGPT accounts to check")
 }

@@ -62,13 +62,13 @@ func (m usageFetchSpinnerModel) View() string {
 	return fmt.Sprintf("%s %s", m.spinner.View(), m.label)
 }
 
-func runUsageFetchSpinner(ctx context.Context, output io.Writer, fetch func(context.Context) error) error {
+func runUsageFetchSpinner(ctx context.Context, output io.Writer, label string, fetch func(context.Context) error) error {
 	fetchCmd := func() tea.Msg {
 		return usageFetchDoneMsg{err: fetch(ctx)}
 	}
 
 	p := tea.NewProgram(
-		newUsageFetchSpinnerModel("Fetching usage limits...", fetchCmd),
+		newUsageFetchSpinnerModel(label, fetchCmd),
 		tea.WithInput(nil),
 		tea.WithOutput(output),
 		tea.WithContext(ctx),

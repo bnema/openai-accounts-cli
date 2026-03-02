@@ -271,6 +271,33 @@ func (s *Service) SetLimit(ctx context.Context, id domain.AccountID, kind LimitW
 	return nil
 }
 
+// ClearLimit removes a persisted limit snapshot for the given window kind.
+// Use this when a fresh API response omits a window that was previously stored,
+// to prevent stale data from surfacing indefinitely.
+func (s *Service) ClearLimit(ctx context.Context, id domain.AccountID, kind LimitWindowKind) error {
+	if !kind.Valid() {
+		return fmt.Errorf("%w: %q", ErrUnsupportedWindowKind, kind)
+	}
+
+	account, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get account by id: %w", err)
+	}
+
+	switch kind {
+	case LimitWindowDaily:
+		account.Limits.Daily = nil
+	case LimitWindowWeekly:
+		account.Limits.Weekly = nil
+	}
+
+	if err := s.repo.Save(ctx, account); err != nil {
+		return fmt.Errorf("clear account limit: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Service) SetSubscription(ctx context.Context, id domain.AccountID, sub domain.Subscription) error {
 	account, err := s.repo.GetByID(ctx, id)
 	if err != nil {

@@ -105,7 +105,7 @@ func runUsageFetch(cmd *cobra.Command, app *app, accountID string, asJSON bool) 
 			return err
 		}
 	} else {
-		if err := runUsageFetchSpinner(cmd.Context(), cmd.ErrOrStderr(), fetchCmd); err != nil {
+		if err := runUsageFetchSpinner(cmd.Context(), cmd.ErrOrStderr(), "Fetching usage limits...", fetchCmd); err != nil {
 			return err
 		}
 	}
@@ -284,10 +284,20 @@ func fetchAndPersistLimitsUncached(ctx context.Context, app *app, account domain
 		if err := app.service.SetLimit(ctx, account.ID, "daily", daily.UsedPercent, time.Unix(daily.ResetAt, 0).UTC(), now); err != nil {
 			return fmt.Errorf("account %s: save daily limit snapshot: %w", account.ID, err)
 		}
+	} else {
+		// API returned a valid payload but no daily window — clear any stale snapshot.
+		if err := app.service.ClearLimit(ctx, account.ID, "daily"); err != nil {
+			return fmt.Errorf("account %s: clear stale daily limit snapshot: %w", account.ID, err)
+		}
 	}
 	if weekly != nil {
 		if err := app.service.SetLimit(ctx, account.ID, "weekly", weekly.UsedPercent, time.Unix(weekly.ResetAt, 0).UTC(), now); err != nil {
 			return fmt.Errorf("account %s: save weekly limit snapshot: %w", account.ID, err)
+		}
+	} else {
+		// API returned a valid payload but no weekly window — clear any stale snapshot.
+		if err := app.service.ClearLimit(ctx, account.ID, "weekly"); err != nil {
+			return fmt.Errorf("account %s: clear stale weekly limit snapshot: %w", account.ID, err)
 		}
 	}
 

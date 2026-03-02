@@ -1,14 +1,10 @@
 package cmd
 
 import (
-	"errors"
+	"context"
 	"fmt"
-	"strings"
 	"time"
 
-	authadapter "github.com/bnema/openai-accounts-cli/internal/adapters/auth"
-	"github.com/bnema/openai-accounts-cli/internal/application"
-	"github.com/bnema/openai-accounts-cli/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +13,7 @@ func newAuthCheckCmd(app *app) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "check",
-		Short: "Check authentication validity for one or all ChatGPT accounts",
+		Short: "Verify authentication for one or all ChatGPT accounts",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runAuthCheck(cmd, app, accountID)
 		},
@@ -34,102 +30,47 @@ func runAuthCheck(cmd *cobra.Command, app *app, accountID string) error {
 		return err
 	}
 
-	var hasError bool
-	for _, status := range statuses {
-		if err := checkAccountAuth(cmd, app, status); err != nil {
-			hasError = true
-		}
-	}
-
-	if hasError {
-		return fmt.Errorf("one or more accounts have invalid authentication")
-	}
-	return nil
-}
-
-func checkAccountAuth(cmd *cobra.Command, app *app, status application.Status) error {
-	account := status.Account
-	out := cmd.OutOrStdout()
-
-	if account.Auth.Method != domain.AuthMethodChatGPT {
-		fmt.Fprintf(out, "account %s (%s): skip (auth method: %s)\n", account.ID, account.Name, account.Auth.Method)
+	accounts := filterChatGPTAccounts(statuses)
+	if len(accounts) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "no ChatGPT accounts to check")
 		return nil
 	}
 
-	secretRef := strings.TrimSpace(account.Auth.SecretRef)
-	if secretRef == "" {
-		err := fmt.Errorf("account %s: auth secret reference is empty", account.ID)
-		fmt.Fprintf(out, "account %s (%s): FAIL — %v\n", account.ID, account.Name, err)
+	fetchFn := func(ctx context.Context) error {
+		return fetchAccountsConcurrently(ctx, app, accounts, cmd.ErrOrStderr())
+	}
+
+	if err := runUsageFetchSpinner(cmd.Context(), cmd.ErrOrStderr(), "Checking auth...", fetchFn); err != nil {
 		return err
 	}
 
-	secretValue, err := app.secretStore.Get(cmd.Context(), secretRef)
+	updated, err := loadStatuses(cmd, app.service, accountID)
 	if err != nil {
-		fmt.Fprintf(out, "account %s (%s): FAIL — load secret: %v\n", account.ID, account.Name, err)
 		return err
 	}
 
-	tokens, err := decodeOAuthTokens(secretValue)
-	if err != nil {
-		fmt.Fprintf(out, "account %s (%s): FAIL — decode tokens: %v\n", account.ID, account.Name, err)
-		return err
-	}
-
-	// Attempt refresh if needed
-	var expiryInfo string
-	tokens, err = ensureFreshTokens(cmd.Context(), app, account, tokens, false)
-	if err != nil {
-		if errors.Is(err, authadapter.ErrRefreshTokenInvalid) {
-			fmt.Fprintf(out, "account %s (%s): FAIL — session expired, re-login with `oa auth login browser --account %s`\n", account.ID, account.Name, account.ID)
-			return err
+	now := app.now()
+	for _, status := range updated {
+		if status.Account.Auth.Method == "" {
+			continue
 		}
-		fmt.Fprintf(out, "account %s (%s): FAIL — refresh tokens: %v\n", account.ID, account.Name, err)
-		return err
-	}
-
-	// Token expiry info after refresh
-	expiryInfo = formatTokenExpiry(tokens, app.now())
-
-	// Ping the usage endpoint
-	_, pingErr := fetchUsagePayload(cmd.Context(), app.httpClient, app.usageBaseURL, tokens)
-	if pingErr != nil {
-		if errors.Is(pingErr, errUsageSessionExpired) {
-			// Try a forced refresh and retry once (same as usage command)
-			staleToken := tokens.AccessToken
-			refreshed, refreshErr := ensureFreshTokens(cmd.Context(), app, account, tokens, true)
-			if refreshErr == nil && strings.TrimSpace(refreshed.AccessToken) != strings.TrimSpace(staleToken) {
-				tokens = refreshed
-				expiryInfo = formatTokenExpiry(tokens, app.now())
-				_, pingErr = fetchUsagePayload(cmd.Context(), app.httpClient, app.usageBaseURL, tokens)
-			}
+		label := status.Account.Name
+		if label == "" {
+			label = string(status.Account.ID)
 		}
-		if pingErr != nil {
-			if errors.Is(pingErr, errUsageSessionExpired) {
-				fmt.Fprintf(out, "account %s (%s): FAIL — session expired, re-login with `oa auth login browser --account %s`\n", account.ID, account.Name, account.ID)
-				return fmt.Errorf("session expired")
-			}
-			fmt.Fprintf(out, "account %s (%s): FAIL — ping failed: %v\n", account.ID, account.Name, pingErr)
-			return pingErr
+
+		expiryParts := ""
+		if status.DailyLimit != nil && !status.DailyLimit.CapturedAt.IsZero() {
+			age := now.Sub(status.DailyLimit.CapturedAt).Round(time.Second)
+			expiryParts = fmt.Sprintf("data fetched %s ago", age)
+		}
+
+		if expiryParts != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): ok — %s\n", status.Account.ID, label, expiryParts)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): ok\n", status.Account.ID, label)
 		}
 	}
 
-	claims := parseTokenClaims(tokens.IDToken)
-	email := strings.TrimSpace(claims.Email)
-	if email == "" {
-		email = strings.TrimSpace(account.Name)
-	}
-
-	fmt.Fprintf(out, "account %s (%s): ok — session valid, %s\n", account.ID, email, expiryInfo)
 	return nil
-}
-
-func formatTokenExpiry(tokens oauthTokens, now time.Time) string {
-	if tokens.ExpiresAt <= 0 {
-		return "expires: unknown"
-	}
-	expiresAt := time.Unix(tokens.ExpiresAt, 0)
-	if expiresAt.Before(now) {
-		return fmt.Sprintf("expires: expired %s ago", now.Sub(expiresAt).Round(time.Minute))
-	}
-	return fmt.Sprintf("expires in %s", expiresAt.Sub(now).Round(time.Minute))
 }
