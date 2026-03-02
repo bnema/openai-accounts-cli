@@ -24,7 +24,7 @@ go install github.com/bnema/openai-accounts-cli/cmd/oa@latest
 |---------|-------------|
 | `oa account list` | List accounts |
 | `oa account remove <id>` | Delete an account and its credentials |
-| `oa auth login browser\|device` | OAuth login flow |
+| `oa auth login browser\|device [--account <id>]` | OAuth login flow |
 | `oa auth set` | Set account credentials manually |
 | `oa auth remove` | Clear account credentials |
 | `oa auth check [--account <id>]` | Verify OAuth session validity |
