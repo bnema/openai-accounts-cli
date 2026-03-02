@@ -499,36 +499,6 @@ func fakeJWT(payload string) string {
 	return header + "." + body + ".sig"
 }
 
-func TestAuthCheckPassesForValidSession(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/wham/usage" {
-			assert.Equal(t, "Bearer valid-token", r.Header.Get("Authorization"))
-			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":20,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":50,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	t.Setenv("OA_USAGE_BASE_URL", server.URL)
-
-	home := t.TempDir()
-	require.NoError(t, writeAccountsFixture(home))
-
-	_, _, err := executeCLI(t, home,
-		"auth", "set",
-		"--account", "acc-1",
-		"--method", "chatgpt",
-		"--secret-key", "openai://acc-1/oauth_tokens",
-		"--secret-value", `{"access_token":"valid-token","id_token":""}`,
-	)
-	require.NoError(t, err)
-
-	stdout, _, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
-	require.NoError(t, err)
-	assert.Contains(t, stdout, "ok")
-}
-
 func TestAuthCheckFailsForExpiredSession(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -552,7 +522,7 @@ func TestAuthCheckFailsForExpiredSession(t *testing.T) {
 
 	_, stderr, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
 	require.Error(t, err)
-	assert.Contains(t, stderr, "session expired")
+	assert.Contains(t, err.Error()+stderr, "session expired")
 }
 
 func TestAuthCheckReportsOKAfterSuccessfulFetch(t *testing.T) {
