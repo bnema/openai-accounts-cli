@@ -13,7 +13,7 @@ func newAuthCmd(app *app) *cobra.Command {
 		Short: "Manage account authentication",
 	}
 
-	cmd.AddCommand(newAuthSetCmd(app), newAuthRemoveCmd(app), newLoginCmd(app))
+	cmd.AddCommand(newAuthSetCmd(app), newAuthRemoveCmd(app), newLoginCmd(app), newAuthCheckCmd(app))
 
 	return cmd
 }
