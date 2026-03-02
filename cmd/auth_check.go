@@ -75,10 +75,8 @@ func checkAccountAuth(cmd *cobra.Command, app *app, status application.Status) e
 		return err
 	}
 
-	// Token expiry info
-	expiryInfo := formatTokenExpiry(tokens, app.now())
-
 	// Attempt refresh if needed
+	var expiryInfo string
 	tokens, err = ensureFreshTokens(cmd.Context(), app, account, tokens, false)
 	if err != nil {
 		if errors.Is(err, authadapter.ErrRefreshTokenInvalid) {
@@ -89,15 +87,30 @@ func checkAccountAuth(cmd *cobra.Command, app *app, status application.Status) e
 		return err
 	}
 
+	// Token expiry info after refresh
+	expiryInfo = formatTokenExpiry(tokens, app.now())
+
 	// Ping the usage endpoint
-	_, err = fetchUsagePayload(cmd.Context(), app.httpClient, app.usageBaseURL, tokens)
-	if err != nil {
-		if errors.Is(err, errUsageSessionExpired) {
-			fmt.Fprintf(out, "account %s (%s): FAIL — session expired, re-login with `oa auth login browser --account %s`\n", account.ID, account.Name, account.ID)
-			return fmt.Errorf("session expired")
+	_, pingErr := fetchUsagePayload(cmd.Context(), app.httpClient, app.usageBaseURL, tokens)
+	if pingErr != nil {
+		if errors.Is(pingErr, errUsageSessionExpired) {
+			// Try a forced refresh and retry once (same as usage command)
+			staleToken := tokens.AccessToken
+			refreshed, refreshErr := ensureFreshTokens(cmd.Context(), app, account, tokens, true)
+			if refreshErr == nil && strings.TrimSpace(refreshed.AccessToken) != strings.TrimSpace(staleToken) {
+				tokens = refreshed
+				expiryInfo = formatTokenExpiry(tokens, app.now())
+				_, pingErr = fetchUsagePayload(cmd.Context(), app.httpClient, app.usageBaseURL, tokens)
+			}
 		}
-		fmt.Fprintf(out, "account %s (%s): FAIL — ping failed: %v\n", account.ID, account.Name, err)
-		return err
+		if pingErr != nil {
+			if errors.Is(pingErr, errUsageSessionExpired) {
+				fmt.Fprintf(out, "account %s (%s): FAIL — session expired, re-login with `oa auth login browser --account %s`\n", account.ID, account.Name, account.ID)
+				return fmt.Errorf("session expired")
+			}
+			fmt.Fprintf(out, "account %s (%s): FAIL — ping failed: %v\n", account.ID, account.Name, pingErr)
+			return pingErr
+		}
 	}
 
 	claims := parseTokenClaims(tokens.IDToken)
