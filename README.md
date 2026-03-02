@@ -20,18 +20,18 @@ go install github.com/bnema/openai-accounts-cli/cmd/oa@latest
 
 ## Commands
 
-| Command | Description | Flags |
-|---------|-------------|-------|
-| `oa account list` | List configured accounts | |
-| `oa account remove <id>` | Remove an account and its credentials | |
-| `oa auth check` | Verify OAuth session validity for ChatGPT accounts | `--account <id>` |
-| `oa auth login browser` | Start browser OAuth login flow | `--account <id>` |
-| `oa auth login device` | Start device OAuth login flow *(not implemented)* | `--account <id>` |
-| `oa auth set` | Set account credentials manually | `--account <id>` `--method api_key\|chatgpt` `--secret-key <key>` `--secret-value <val>` |
-| `oa auth remove` | Remove account credentials | `--account <id>` |
-| `oa usage` | Fetch and display usage limits (alias: `status`) | `--account <id>` `--json` |
-| `oa rotate opencode` | Patch opencode's codex auth with the best available account | |
-| `oa version` | Print version | |
+| Command | Description |
+|---------|-------------|
+| `oa account list` | List configured accounts |
+| `oa account remove <id>` | Remove an account and its credentials |
+| `oa auth check [--account <id>]` | Verify OAuth session validity for ChatGPT accounts |
+| `oa auth login browser [--account <id>]` | Start browser OAuth login flow |
+| `oa auth login device [--account <id>]` | Start device OAuth login flow *(not implemented)* |
+| `oa auth set --method api_key\|chatgpt --secret-key <key> --secret-value <val> [--account <id>]` | Set account credentials manually |
+| `oa auth remove --account <id>` | Remove account credentials |
+| `oa usage [--account <id>] [--json]` | Fetch and display usage limits (alias: `status`) |
+| `oa rotate opencode` | Patch opencode's codex auth with the best available account |
+| `oa version` | Print version |
 
 ## Configuration
 
