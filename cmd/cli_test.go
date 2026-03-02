@@ -498,3 +498,109 @@ func fakeJWT(payload string) string {
 	body := base64.RawURLEncoding.EncodeToString([]byte(payload))
 	return header + "." + body + ".sig"
 }
+
+func TestAuthCheckPassesForValidSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/wham/usage" {
+			assert.Equal(t, "Bearer valid-token", r.Header.Get("Authorization"))
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":20,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":50,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-1/oauth_tokens",
+		"--secret-value", `{"access_token":"valid-token","id_token":""}`,
+	)
+	require.NoError(t, err)
+
+	stdout, _, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "ok")
+}
+
+func TestAuthCheckFailsForExpiredSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = fmt.Fprint(w, `{"error":"invalid_token"}`)
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-1/oauth_tokens",
+		"--secret-value", `{"access_token":"bad-token","refresh_token":"","id_token":""}`,
+	)
+	require.NoError(t, err)
+
+	stdout, _, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
+	require.Error(t, err)
+	assert.Contains(t, stdout, "session expired")
+}
+
+func TestAuthCheckShowsTokenExpiryInfo(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/wham/usage" {
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":20,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":50,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	expiresAt := time.Now().Add(2 * time.Hour).Unix()
+	secretValue := fmt.Sprintf(`{"access_token":"valid-token","id_token":"","expires_at":%d}`, expiresAt)
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-1/oauth_tokens",
+		"--secret-value", secretValue,
+	)
+	require.NoError(t, err)
+
+	stdout, _, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "expires")
+}
+
+func TestAuthCheckSkipsNonChatGPTAccount(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "api_key",
+		"--secret-key", "openai://acc-1/api_key",
+		"--secret-value", "sk-test-key",
+	)
+	require.NoError(t, err)
+
+	stdout, _, err := executeCLI(t, home, "auth", "check", "--account", "acc-1")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "skip")
+}
