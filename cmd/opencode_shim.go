@@ -1,33 +1,25 @@
 package cmd
 
-const opencodeShim = `export const OAPlugin = async ({ client, $ }) => {
+const opencodeShim = `import { tool } from "@opencode-ai/plugin"
+
+export const OAPlugin = async ({ client, $ }) => {
   return {
-    "session.error": async (event) => {
-      try {
-        const result = await $` + "`" + `oa opencode handle --json` + "`" + `.stdin(JSON.stringify({
-          provider: event.provider ?? "openai",
-          status: event.status ?? 0,
-          message: event.message ?? "",
-          account_id: event.account_id ?? event.accountId ?? "",
-        })).json()
-
-        if (!event.metadata?.oaRetried && result.retry_safe && result.auth) {
-			await client.auth.set({ path: { id: "openai" }, body: result.auth })
-          return {
-            retry: true,
-            metadata: {
-              ...(event.metadata ?? {}),
-              oaRetried: true,
-            },
+    tool: {
+      "oa-sync": tool({
+        description: "Sync OpenCode auth with oa opencode sync",
+        args: {},
+        async execute() {
+          try {
+            const message = (await $` + "`" + `oa opencode sync` + "`" + `.quiet().text()).trim() || "Synced OpenCode auth"
+            await client.tui.showToast({ body: { message, variant: "info" } })
+            return message
+          } catch (error) {
+            const message = error?.stderr?.toString?.().trim?.() || error?.message || "oa opencode sync failed"
+            await client.tui.showToast({ body: { message, variant: "error" } })
+            return message
           }
-        }
-
-		await client.tui.showToast({ body: { message: result.message, variant: "info" } })
-		return { retry: false }
-	} catch (error) {
-		await client.tui.showToast({ body: { message: error?.message ?? "opencode handle failed", variant: "info" } })
-		return { retry: false }
-	}
+        },
+      }),
     },
   }
 }

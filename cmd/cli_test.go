@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -237,24 +236,33 @@ func TestOpencodeInstallWritesPluginAndConfig(t *testing.T) {
 	data, readErr := os.ReadFile(pluginPath)
 	require.NoError(t, readErr)
 	plugin := string(data)
+	assert.Contains(t, plugin, `import { tool } from "@opencode-ai/plugin"`)
 	assert.Contains(t, plugin, `export const OAPlugin = async ({ client, $ }) => {`)
-	assert.Contains(t, plugin, `return {`)
-	assert.Contains(t, plugin, `"session.error": async (event) => {`)
-	assert.Contains(t, plugin, "oa opencode handle --json")
-	assert.Contains(t, plugin, "try {")
-	assert.Contains(t, plugin, "catch (error)")
-	assert.Contains(t, plugin, `!event.metadata?.oaRetried && result.retry_safe && result.auth`)
-	assert.Contains(t, plugin, `await client.auth.set({ path: { id: "openai" }, body: result.auth })`)
-	assert.Contains(t, plugin, `await client.tui.showToast({ body: { message: result.message, variant: "info" } })`)
-	assert.Contains(t, plugin, `await client.tui.showToast({ body: { message: error?.message ?? "opencode handle failed", variant: "info" } })`)
-	assert.NotEqual(t, -1, strings.Index(plugin, `if (!event.metadata?.oaRetried && result.retry_safe && result.auth) {`))
-	assert.NotEqual(t, -1, strings.Index(plugin, `await client.auth.set({ path: { id: "openai" }, body: result.auth })`))
-	assert.NotEqual(t, -1, strings.Index(plugin, `await client.tui.showToast({ body: { message: result.message, variant: "info" } })`))
-	assert.NotEqual(t, -1, strings.Index(plugin, `await client.tui.showToast({ body: { message: error?.message ?? "opencode handle failed", variant: "info" } })`))
-	assert.Greater(t,
-		strings.Index(plugin, `await client.auth.set({ path: { id: "openai" }, body: result.auth })`),
-		strings.Index(plugin, `if (!event.metadata?.oaRetried && result.retry_safe && result.auth) {`),
-	)
+	assert.Contains(t, plugin, `tool: {`)
+	assert.Contains(t, plugin, `"oa-sync": tool({`)
+	assert.Contains(t, plugin, `description: "Sync OpenCode auth with oa opencode sync"`)
+	assert.Contains(t, plugin, "oa opencode sync")
+	assert.Contains(t, plugin, `await client.tui.showToast({ body: { message, variant: "info" } })`)
+	assert.Contains(t, plugin, `await client.tui.showToast({ body: { message, variant: "error" } })`)
+
+	configPath := filepath.Join(home, ".config", "opencode", "package.json")
+	configData, readConfigErr := os.ReadFile(configPath)
+	require.NoError(t, readConfigErr)
+	assert.JSONEq(t, `{"dependencies":{"@opencode-ai/plugin":"*"}}`, string(configData))
+}
+
+func TestOpencodeInstallMergesPluginDependencyIntoExistingConfigPackage(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".config", "opencode")
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "package.json"), []byte(`{"name":"local-opencode-config","dependencies":{"left-pad":"1.3.0"}}`), 0o644))
+
+	_, _, err := executeCLI(t, home, "opencode", "install")
+	require.NoError(t, err)
+
+	configData, readErr := os.ReadFile(filepath.Join(configDir, "package.json"))
+	require.NoError(t, readErr)
+	assert.JSONEq(t, `{"name":"local-opencode-config","dependencies":{"left-pad":"1.3.0","@opencode-ai/plugin":"*"}}`, string(configData))
 }
 
 func TestOpencodeDoctorReportsHealthyInstall(t *testing.T) {

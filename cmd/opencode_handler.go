@@ -139,13 +139,9 @@ func loadOpencodeHandlerAuth(cmd *cobra.Command, app *app, accountID domain.Acco
 
 	updatedTokens, err := ensureFreshTokens(cmd.Context(), app, status.Account, tokens, forceRefresh)
 	if err != nil {
-		if !forceRefresh || strings.TrimSpace(tokens.AccessToken) == "" {
-			return nil, fmt.Errorf("account %s: refresh oauth tokens: %w", accountID, err)
-		}
 		return nil, fmt.Errorf("account %s: refresh oauth tokens: %w", accountID, err)
-	} else {
-		tokens = updatedTokens
 	}
+	tokens = updatedTokens
 
 	entry := opencodeAuthEntry{
 		Type:      "oauth",

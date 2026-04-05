@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	opencodeConfigRelDir = ".config/opencode"
 	opencodeProviderID   = "openai"
 	opencodePluginRelDir = ".config/opencode/plugins"
 	opencodePluginName   = "oa-plugin.js"
@@ -40,6 +41,15 @@ func opencodePluginPath() (string, error) {
 	}
 
 	return filepath.Join(homeDir, opencodePluginRelDir, opencodePluginName), nil
+}
+
+func opencodeConfigDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+
+	return filepath.Join(homeDir, opencodeConfigRelDir), nil
 }
 
 func opencodeAuthPath() (string, error) {

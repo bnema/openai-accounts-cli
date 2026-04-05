@@ -14,10 +14,17 @@ func TestClassifyOpencodeFailure(t *testing.T) {
 		err  error
 		want OpencodeFailureClass
 	}{
+		{name: "nil error", err: nil, want: OpencodeFailureUnknown},
+		{name: "empty message", err: errors.New(""), want: OpencodeFailureUnknown},
 		{name: "cooldown from rate limit", err: errors.New("request failed: rate limit exceeded"), want: OpencodeFailureCooldown},
+		{name: "cooldown from uppercase message", err: errors.New("RATE LIMIT EXCEEDED"), want: OpencodeFailureCooldown},
+		{name: "cooldown from cooldown message", err: errors.New("retry after cooldown window"), want: OpencodeFailureCooldown},
 		{name: "weekly limit", err: errors.New("weekly limit reached"), want: OpencodeFailureWeeklyLimit},
+		{name: "weekly limit with extra context", err: errors.New("request failed: WEEKLY LIMIT reached for workspace"), want: OpencodeFailureWeeklyLimit},
 		{name: "no subscription", err: errors.New("account has no active subscription"), want: OpencodeFailureNoSubscription},
+		{name: "short no subscription message", err: errors.New("no subscription on account"), want: OpencodeFailureNoSubscription},
 		{name: "auth invalid", err: errors.New("authentication failed: invalid api key"), want: OpencodeFailureAuthInvalid},
+		{name: "auth invalid from unauthorized", err: errors.New("Unauthorized request to upstream"), want: OpencodeFailureAuthInvalid},
 		{name: "unknown", err: errors.New("unexpected upstream failure"), want: OpencodeFailureUnknown},
 	}
 

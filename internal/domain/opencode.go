@@ -15,6 +15,11 @@ const (
 	OpencodeFailureUnknown        OpencodeFailureClass = "unknown"
 )
 
+// ClassifyOpencodeFailure matches the current upstream/OpenCode error strings.
+// The inputs are free-form errors, so the classifier intentionally uses
+// case-insensitive substring checks for stable phrases such as "weekly limit",
+// "no active subscription", "no subscription", "invalid api key",
+// "authentication failed", "unauthorized", "rate limit", and "cooldown".
 func ClassifyOpencodeFailure(err error) OpencodeFailureClass {
 	if err == nil {
 		return OpencodeFailureUnknown
