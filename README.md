@@ -22,22 +22,27 @@ make install
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `oa account list` | List configured accounts |
-| `oa account remove <id>` | Remove an account and its credentials |
-| `oa auth check [--account <id>]` | Verify OAuth session validity for ChatGPT accounts |
-| `oa auth login browser [--account <id>]` | Start browser OAuth login flow |
-| `oa auth login device [--account <id>]` | Start device OAuth login flow *(not implemented)* |
-| `oa auth set [--account <id>]` | Set account credentials manually (`--method`, `--secret-key`, `--secret-value`) |
-| `oa auth remove --account <id>` | Remove account credentials |
-| `oa usage [--account <id>] [--json]` | Fetch and display usage limits (alias: `status`) |
-| `oa opencode install` | Install the OpenCode plugin shim |
-| `oa opencode doctor` | Check OpenCode integration state |
-| `oa opencode sync` | Sync OpenCode auth with the best eligible account |
-| `oa opencode install-systemd` | Install a systemd user timer for periodic sync |
-| `oa opencode handle --json` | Handle OpenCode recovery requests via JSON stdin/stdout |
-| `oa version` | Print version |
+```text
+oa
+|- account                         Manage accounts
+|  |- list                         List configured accounts
+|  `- remove <id>                  Remove an account and its credentials
+|- auth                            Manage account authentication
+|  |- check [--account <id>]       Verify authentication for one or all ChatGPT accounts
+|  |- login                        Start account login flows
+|  |  |- browser [--account <id>]  Start browser login flow
+|  |  `- device [--account <id>]   Start device login flow (not implemented)
+|  |- remove --account <id>        Remove account authentication
+|  `- set [--account <id>]         Set account authentication (`--method`, `--secret-key`, `--secret-value`)
+|- opencode                        Manage OpenCode integration
+|  |- doctor                       Check OpenCode integration
+|  |- handle --json                Handle OpenCode requests via JSON stdin/stdout
+|  |- install                      Install OpenCode integration
+|  |- install-systemd              Install a systemd user timer for OpenCode sync
+|  `- sync                         Sync OpenCode auth
+|- usage [--account <id>] [--json] Fetch and display account usage limits (alias: `status`)
+`- version                         Print version information
+```
 
 ## Configuration
 
