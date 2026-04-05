@@ -401,7 +401,7 @@ func TestUsageCommandFetchesSubscriptionAndRendersRenewal(t *testing.T) {
 		case r.URL.Path == "/wham/usage":
 			_, _ = fmt.Fprint(w, `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":21,"limit_window_seconds":18000,"reset_after_seconds":120,"reset_at":1893456000},"secondary_window":{"used_percent":47,"limit_window_seconds":604800,"reset_after_seconds":3600,"reset_at":1893888000}}}`)
 		case r.URL.Path == "/subscriptions":
-			_, _ = fmt.Fprint(w, `{"plan_type":"plus","active_start":"2026-02-14T07:41:19Z","active_until":"2026-03-14T07:41:19Z","will_renew":true,"billing_period":"monthly","billing_currency":"EUR","is_delinquent":false}`)
+			_, _ = fmt.Fprint(w, `{"plan_type":"plus","active_start":"2026-04-14T07:41:19Z","active_until":"2026-05-14T07:41:19Z","will_renew":true,"billing_period":"monthly","billing_currency":"EUR","is_delinquent":false}`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -426,7 +426,7 @@ func TestUsageCommandFetchesSubscriptionAndRendersRenewal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "renewal:")
 	assert.Contains(t, stdout, "renews in")
-	assert.Contains(t, stdout, "14 Mar")
+	assert.Contains(t, stdout, "14 May")
 }
 
 func executeCLI(t *testing.T, home string, args ...string) (string, string, error) {

@@ -114,6 +114,14 @@ func TestRenderMarksStaleLimitSnapshot(t *testing.T) {
 	assert.Contains(t, output, "[stale]")
 }
 
+func TestFormatResetRelativeRendersClockTimeInNowLocation(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*60*60)
+	now := time.Date(2026, 4, 5, 19, 37, 0, 0, loc)
+	resetAt := time.Date(2026, 4, 5, 17, 48, 0, 0, time.UTC)
+
+	assert.Equal(t, "resets in 1 hour (19:48)", formatResetRelative(resetAt, now))
+}
+
 func TestRenderShowsDailyAndWeeklyLimitsWhenBothAvailable(t *testing.T) {
 	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
 

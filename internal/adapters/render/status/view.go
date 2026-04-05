@@ -546,13 +546,15 @@ func formatResetAt(resetsAt, now time.Time) string {
 		return resetsAt.Format(time.RFC3339)
 	}
 
+	displayTime := resetDisplayTime(resetsAt, now)
+
 	yearA, monthA, dayA := now.Date()
-	yearB, monthB, dayB := resetsAt.Date()
+	yearB, monthB, dayB := displayTime.Date()
 	if yearA == yearB && monthA == monthB && dayA == dayB {
-		return resetsAt.Format("15:04")
+		return displayTime.Format("15:04")
 	}
 
-	return resetsAt.Format("15:04 on 02 Jan")
+	return displayTime.Format("15:04 on 02 Jan")
 }
 
 func formatResetRelative(resetsAt, now time.Time) string {
@@ -564,6 +566,7 @@ func formatResetRelative(resetsAt, now time.Time) string {
 		return "reset now"
 	}
 
+	displayTime := resetDisplayTime(resetsAt, now)
 	remaining := resetsAt.Sub(now)
 	if remaining < 24*time.Hour {
 		hours := int(math.Ceil(remaining.Hours()))
@@ -574,7 +577,7 @@ func formatResetRelative(resetsAt, now time.Time) string {
 		if hours == 1 {
 			suffix = "hour"
 		}
-		return fmt.Sprintf("resets in %d %s (%s)", hours, suffix, resetsAt.Format("15:04"))
+		return fmt.Sprintf("resets in %d %s (%s)", hours, suffix, displayTime.Format("15:04"))
 	}
 
 	days := int(math.Ceil(remaining.Hours() / 24))
@@ -586,7 +589,15 @@ func formatResetRelative(resetsAt, now time.Time) string {
 		suffix = "day"
 	}
 
-	return fmt.Sprintf("resets in %d %s (%s)", days, suffix, resetsAt.Format("15:04 on 02 Jan"))
+	return fmt.Sprintf("resets in %d %s (%s)", days, suffix, displayTime.Format("15:04 on 02 Jan"))
+}
+
+func resetDisplayTime(resetsAt, now time.Time) time.Time {
+	if now.IsZero() {
+		return resetsAt
+	}
+
+	return resetsAt.In(now.Location())
 }
 
 func accountTitle(name string, id domain.AccountID, planType string) string {
