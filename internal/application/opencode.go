@@ -2,8 +2,10 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/bnema/openai-accounts-cli/internal/domain"
@@ -22,6 +24,46 @@ type OpencodeRecoveryDecision struct {
 	Action    OpencodeRecoveryAction
 	AccountID domain.AccountID
 	Retry     bool
+}
+
+var ErrNoEligibleOpencodeAccount = errors.New("no eligible opencode account")
+
+func (s *Service) RankOpencodeSyncAccounts(ctx context.Context) ([]Status, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	statuses, err := s.GetStatusAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get statuses: %w", err)
+	}
+
+	now := s.clock.Now()
+	ranked := make([]Status, 0, len(statuses))
+	for _, status := range statuses {
+		if !domain.AccountEligibleForOpencodeFailover(status.Account, now) {
+			continue
+		}
+		ranked = append(ranked, status)
+	}
+
+	sort.Slice(ranked, func(i, j int) bool {
+		return compareOpencodeFailoverStatus(&ranked[i], &ranked[j], domain.OpencodeFailureCooldown) < 0
+	})
+
+	return ranked, nil
+}
+
+func (s *Service) SelectOpencodeSyncAccount(ctx context.Context) (Status, error) {
+	ranked, err := s.RankOpencodeSyncAccounts(ctx)
+	if err != nil {
+		return Status{}, err
+	}
+	if len(ranked) == 0 {
+		return Status{}, ErrNoEligibleOpencodeAccount
+	}
+
+	return ranked[0], nil
 }
 
 func (s *Service) DecideOpencodeRecovery(ctx context.Context, currentID domain.AccountID, cause error) (OpencodeRecoveryDecision, error) {
@@ -46,11 +88,11 @@ func (s *Service) DecideOpencodeRecovery(ctx context.Context, currentID domain.A
 		}
 
 		now := s.clock.Now()
-		if account := bestOpencodeFailoverAccount(statuses, currentID, class, now); account != nil {
+		if best := bestOpencodeStatus(statuses, currentID, class, now); best != nil {
 			return OpencodeRecoveryDecision{
 				Class:     class,
 				Action:    OpencodeRecoveryActionFailover,
-				AccountID: account.ID,
+				AccountID: best.Account.ID,
 				Retry:     true,
 			}, nil
 		}
@@ -63,7 +105,7 @@ func (s *Service) DecideOpencodeRecovery(ctx context.Context, currentID domain.A
 	}, nil
 }
 
-func bestOpencodeFailoverAccount(statuses []Status, currentID domain.AccountID, class domain.OpencodeFailureClass, now time.Time) *domain.Account {
+func bestOpencodeStatus(statuses []Status, currentID domain.AccountID, class domain.OpencodeFailureClass, now time.Time) *Status {
 	var best *Status
 
 	for i := range statuses {
@@ -83,7 +125,7 @@ func bestOpencodeFailoverAccount(statuses []Status, currentID domain.AccountID, 
 		return nil
 	}
 
-	return &best.Account
+	return best
 }
 
 func compareOpencodeFailoverStatus(left, right *Status, class domain.OpencodeFailureClass) int {

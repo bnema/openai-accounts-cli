@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,9 @@ const (
 	opencodePluginRelDir = ".config/opencode/plugins"
 	opencodePluginName   = "oa-plugin.js"
 	opencodeAuthRelPath  = ".local/share/opencode/auth.json"
+	systemdUserRelDir    = ".config/systemd/user"
+	opencodeServiceName  = "oa-opencode-sync.service"
+	opencodeTimerName    = "oa-opencode-sync.timer"
 )
 
 type opencodeAuthEntry struct {
@@ -26,6 +30,8 @@ type opencodeAuthEntry struct {
 	Expires   int64  `json:"expires"`
 	AccountID string `json:"accountId,omitempty"`
 }
+
+var errOpencodeCandidateUnavailable = errors.New("opencode candidate unavailable")
 
 func opencodePluginPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
@@ -45,13 +51,22 @@ func opencodeAuthPath() (string, error) {
 	return filepath.Join(homeDir, opencodeAuthRelPath), nil
 }
 
+func opencodeSystemdUnitDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+
+	return filepath.Join(homeDir, systemdUserRelDir), nil
+}
+
 func loadOAuthTokensForAccount(ctx context.Context, app *app, accountID domain.AccountID) (oauthTokens, application.Status, error) {
 	status, err := app.service.GetStatus(ctx, accountID)
 	if err != nil {
 		return oauthTokens{}, application.Status{}, err
 	}
 	if status.Account.Auth.SecretRef == "" {
-		return oauthTokens{}, application.Status{}, fmt.Errorf("account [%s] %s: missing oauth secret ref", status.Account.ID, status.Account.Name)
+		return oauthTokens{}, application.Status{}, fmt.Errorf("%w: account [%s] %s: missing oauth secret ref", errOpencodeCandidateUnavailable, status.Account.ID, status.Account.Name)
 	}
 	secretValue, err := app.secretStore.Get(ctx, status.Account.Auth.SecretRef)
 	if err != nil {
@@ -59,9 +74,22 @@ func loadOAuthTokensForAccount(ctx context.Context, app *app, accountID domain.A
 	}
 	tokens, err := decodeOAuthTokens(secretValue)
 	if err != nil {
-		return oauthTokens{}, application.Status{}, fmt.Errorf("account [%s] %s: decode tokens: %w", status.Account.ID, status.Account.Name, err)
+		return oauthTokens{}, application.Status{}, fmt.Errorf("%w: account [%s] %s: decode tokens: %w", errOpencodeCandidateUnavailable, status.Account.ID, status.Account.Name, err)
+	}
+	if err := validateOpencodeTokens(tokens); err != nil {
+		return oauthTokens{}, application.Status{}, fmt.Errorf("%w: account [%s] %s: %w", errOpencodeCandidateUnavailable, status.Account.ID, status.Account.Name, err)
 	}
 	return tokens, status, nil
+}
+
+func validateOpencodeTokens(tokens oauthTokens) error {
+	if tokens.AccessToken == "" {
+		return errors.New("missing access token")
+	}
+	if tokens.RefreshToken == "" {
+		return errors.New("missing refresh token")
+	}
+	return nil
 }
 
 func syncAccountIntoOpencode(ctx context.Context, app *app, accountID domain.AccountID) (application.Status, error) {

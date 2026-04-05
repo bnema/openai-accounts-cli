@@ -194,3 +194,52 @@ func TestServiceDecideOpencodeRecoveryFallsBackWithoutRetryForUnknownFailures(t 
 		Retry:  false,
 	}, decision)
 }
+
+func TestServiceSelectOpencodeSyncAccountChoosesBestEligibleStatus(t *testing.T) {
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+
+	repo := mocks.NewMockAccountRepository(t)
+	store := mocks.NewMockSecretStore(t)
+	clock := mocks.NewMockClock(t)
+	clock.EXPECT().Now().Return(now)
+
+	service := NewService(repo, store, clock)
+	repo.EXPECT().List(mockAnyContext()).Return([]domain.Account{
+		{
+			ID:   "acc-1",
+			Auth: domain.Auth{Method: domain.AuthMethodChatGPT, SecretRef: "openai://acc-1/oauth"},
+			Subscription: &domain.Subscription{
+				ActiveUntil: now.Add(24 * time.Hour),
+			},
+			Limits: domain.AccountLimitSnapshots{
+				Daily: &domain.AccountLimitSnapshot{Percent: 100, ResetsAt: now.Add(30 * time.Minute)},
+			},
+		},
+		{
+			ID:   "acc-2",
+			Auth: domain.Auth{Method: domain.AuthMethodChatGPT, SecretRef: "openai://acc-2/oauth"},
+			Subscription: &domain.Subscription{
+				ActiveUntil: now.Add(24 * time.Hour),
+			},
+			Limits: domain.AccountLimitSnapshots{
+				Daily:  &domain.AccountLimitSnapshot{Percent: 40, ResetsAt: now.Add(30 * time.Minute)},
+				Weekly: &domain.AccountLimitSnapshot{Percent: 35, ResetsAt: now.Add(48 * time.Hour)},
+			},
+		},
+		{
+			ID:   "acc-3",
+			Auth: domain.Auth{Method: domain.AuthMethodChatGPT, SecretRef: "openai://acc-3/oauth"},
+			Subscription: &domain.Subscription{
+				ActiveUntil: now.Add(24 * time.Hour),
+			},
+			Limits: domain.AccountLimitSnapshots{
+				Daily:  &domain.AccountLimitSnapshot{Percent: 15, ResetsAt: now.Add(30 * time.Minute)},
+				Weekly: &domain.AccountLimitSnapshot{Percent: 25, ResetsAt: now.Add(48 * time.Hour)},
+			},
+		},
+	}, nil)
+
+	status, err := service.SelectOpencodeSyncAccount(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, domain.AccountID("acc-3"), status.Account.ID)
+}
