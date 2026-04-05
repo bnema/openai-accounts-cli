@@ -329,6 +329,45 @@ func TestOpencodeSyncSelectsBestEligibleAccountAndWritesOpenAIAuthEntry(t *testi
 	assert.NotContains(t, string(data), `"codex"`)
 }
 
+func TestOpencodeSyncPreservesOtherProviderEntries(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	authPath := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(authPath), 0o755))
+	require.NoError(t, os.WriteFile(authPath, []byte(`{
+	  "anthropic": {
+	    "type": "api_key",
+	    "key": "anthropic-key"
+	  },
+	  "openai": {
+	    "type": "oauth",
+	    "access": "stale",
+	    "refresh": "stale"
+	  }
+	}`), 0o600))
+
+	_, _, err = executeCLI(t, home, "opencode", "sync")
+	require.NoError(t, err)
+
+	data, readErr := os.ReadFile(authPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"anthropic"`)
+	assert.Contains(t, string(data), `"key": "anthropic-key"`)
+	assert.Contains(t, string(data), `"openai"`)
+	assert.Contains(t, string(data), `"accountId": "chatgpt-account-3"`)
+	assert.NotContains(t, string(data), `"access": "stale"`)
+}
+
 func TestOpencodeInstallSystemdWritesUserUnits(t *testing.T) {
 	home := t.TempDir()
 
@@ -445,6 +484,57 @@ func TestOpencodeSyncDoesNotFallThroughOnAuthFileWriteFailures(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "opencode auth file")
 	assert.NotContains(t, err.Error(), "decode tokens")
+}
+
+func TestOpencodeSyncFailsOnMalformedExistingAuthFile(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	authPath := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(authPath), 0o755))
+	require.NoError(t, os.WriteFile(authPath, []byte(`{"openai":`), 0o600))
+
+	_, _, err = executeCLI(t, home, "opencode", "sync")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decode opencode auth file")
+
+	data, readErr := os.ReadFile(authPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, `{"openai":`, string(data))
+}
+
+func TestOpencodeSyncPreservesExistingAuthFileMode(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	authPath := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(authPath), 0o755))
+	require.NoError(t, os.WriteFile(authPath, []byte(`{"anthropic":{"type":"api_key","key":"anthropic-key"}}`), 0o640))
+
+	_, _, err = executeCLI(t, home, "opencode", "sync")
+	require.NoError(t, err)
+
+	info, statErr := os.Stat(authPath)
+	require.NoError(t, statErr)
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
 }
 
 func TestRotateOpencodeCommandIsRemoved(t *testing.T) {

@@ -118,10 +118,16 @@ func syncAccountIntoOpencode(ctx context.Context, app *app, accountID domain.Acc
 
 func writeOpencodeAuthEntry(path, provider string, entry opencodeAuthEntry) error {
 	raw := map[string]json.RawMessage{}
+	fileMode := os.FileMode(0o600)
 
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read opencode auth file: %w", err)
+	}
+	if info, statErr := os.Stat(path); statErr == nil {
+		fileMode = info.Mode().Perm()
+	} else if !os.IsNotExist(statErr) {
+		return fmt.Errorf("stat opencode auth file: %w", statErr)
 	}
 	if err == nil {
 		if err := json.Unmarshal(data, &raw); err != nil {
@@ -144,8 +150,32 @@ func writeOpencodeAuthEntry(path, provider string, entry opencodeAuthEntry) erro
 		return fmt.Errorf("create opencode auth directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, out, 0o600); err != nil {
-		return fmt.Errorf("write opencode auth file: %w", err)
+	tempFile, err := os.CreateTemp(filepath.Dir(path), ".auth.json.*")
+	if err != nil {
+		return fmt.Errorf("create temp opencode auth file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		_ = os.Remove(tempPath)
+	}()
+
+	if err := tempFile.Chmod(fileMode); err != nil {
+		_ = tempFile.Close()
+		return fmt.Errorf("chmod temp opencode auth file: %w", err)
+	}
+	if _, err := tempFile.Write(out); err != nil {
+		_ = tempFile.Close()
+		return fmt.Errorf("write temp opencode auth file: %w", err)
+	}
+	if err := tempFile.Sync(); err != nil {
+		_ = tempFile.Close()
+		return fmt.Errorf("sync temp opencode auth file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close temp opencode auth file: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("replace opencode auth file: %w", err)
 	}
 
 	return nil
