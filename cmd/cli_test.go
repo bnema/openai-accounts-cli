@@ -229,10 +229,11 @@ func TestOpencodeHandleReturnsFallbackJSONWhenAccountIDMissing(t *testing.T) {
 func TestOpencodeInstallWritesPluginAndConfig(t *testing.T) {
 	home := t.TempDir()
 
-	_, _, err := executeCLI(t, home, "opencode", "install")
+	stdout, _, err := executeCLI(t, home, "opencode", "install")
 	require.NoError(t, err)
 
 	pluginPath := filepath.Join(home, ".config", "opencode", "plugins", "oa-plugin.js")
+	assert.Contains(t, stdout, pluginPath)
 	data, readErr := os.ReadFile(pluginPath)
 	require.NoError(t, readErr)
 	plugin := string(data)
@@ -279,7 +280,7 @@ func TestOpencodeDoctorReportsHealthyInstall(t *testing.T) {
 	assert.Contains(t, stdout, "plugin: ok")
 	assert.Contains(t, stdout, "oa binary: ok")
 	assert.Contains(t, stdout, "auth file: missing")
-	assert.Contains(t, stdout, "account repo: ok")
+	assert.Contains(t, stdout, "account repo: ok accounts: 1")
 }
 
 func TestOpencodeDoctorReportsMissingOABinaryWhenNotOnPATH(t *testing.T) {
@@ -543,6 +544,27 @@ func TestOpencodeSyncPreservesExistingAuthFileMode(t *testing.T) {
 	info, statErr := os.Stat(authPath)
 	require.NoError(t, statErr)
 	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+}
+
+func TestOpencodeSyncRejectsTokensWithoutExpiry(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSingleSyncAccountFixture(home, "acc-2", "Only Choice"))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+
+	_, _, err = executeCLI(t, home, "opencode", "sync")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing token expiry")
+
+	_, statErr := os.Stat(filepath.Join(home, ".local", "share", "opencode", "auth.json"))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
 func TestRotateOpencodeCommandIsRemoved(t *testing.T) {
@@ -1147,6 +1169,49 @@ billing_currency = "USD"
 is_delinquent = false
 captured_at = "2026-04-05T12:00:00Z"
 `
+
+	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)
+}
+
+func writeOpencodeSingleSyncAccountFixture(home, accountID, accountName string) error {
+	configDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return err
+	}
+
+	accounts := fmt.Sprintf(`version = 1
+
+[[accounts]]
+id = %q
+name = %q
+
+[accounts.metadata]
+provider = "openai"
+model = "gpt-5"
+
+[accounts.auth]
+method = "chatgpt"
+secret_ref = %q
+
+[accounts.limits.daily]
+percent = 5
+resets_at = "2026-04-05T13:00:00Z"
+captured_at = "2026-04-05T12:00:00Z"
+
+[accounts.limits.weekly]
+percent = 10
+resets_at = "2026-04-07T12:00:00Z"
+captured_at = "2026-04-05T12:00:00Z"
+
+[accounts.subscription]
+active_start = "2026-04-01T00:00:00Z"
+active_until = "2026-05-01T00:00:00Z"
+will_renew = true
+billing_period = "monthly"
+billing_currency = "USD"
+is_delinquent = false
+captured_at = "2026-04-05T12:00:00Z"
+`, accountID, accountName, fmt.Sprintf("openai://%s/oauth_tokens", accountID))
 
 	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)
 }

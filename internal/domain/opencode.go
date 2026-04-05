@@ -70,6 +70,7 @@ func hasActiveSubscription(sub *Subscription, now time.Time) bool {
 		return false
 	}
 
+	// Zero ActiveUntil means the subscription has no known end date yet.
 	if sub.ActiveUntil.IsZero() {
 		return true
 	}

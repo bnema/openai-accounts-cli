@@ -13,7 +13,7 @@ func newOpencodeInstallCmd(_ *app) *cobra.Command {
 	return &cobra.Command{
 		Use:   "install",
 		Short: "Install OpenCode integration",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			configDir, err := opencodeConfigDir()
 			if err != nil {
 				return err
@@ -37,7 +37,8 @@ func newOpencodeInstallCmd(_ *app) *cobra.Command {
 				return fmt.Errorf("write opencode plugin shim: %w", err)
 			}
 
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "installed OpenCode plugin to %s\n", path)
+			return err
 		},
 	}
 }

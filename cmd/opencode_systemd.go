@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -43,7 +43,11 @@ func newOpencodeInstallSystemdCmd(_ *app) *cobra.Command {
 }
 
 func renderOpencodeSystemdService(execPath string) string {
-	return fmt.Sprintf("[Unit]\nDescription=Sync OpenCode auth with the best available oa account\n\n[Service]\nType=oneshot\nExecStart=%s opencode sync\n", strconv.Quote(execPath))
+	return fmt.Sprintf("[Unit]\nDescription=Sync OpenCode auth with the best available oa account\n\n[Service]\nType=oneshot\nExecStart=%s opencode sync\n", systemdQuote(execPath))
+}
+
+func systemdQuote(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func renderOpencodeSystemdTimer() string {

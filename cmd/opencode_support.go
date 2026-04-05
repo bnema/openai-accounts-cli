@@ -35,39 +35,28 @@ type opencodeAuthEntry struct {
 var errOpencodeCandidateUnavailable = errors.New("opencode candidate unavailable")
 
 func opencodePluginPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
-	}
-
-	return filepath.Join(homeDir, opencodePluginRelDir, opencodePluginName), nil
+	return opencodeHomeJoin(opencodePluginRelDir, opencodePluginName)
 }
 
 func opencodeConfigDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
-	}
-
-	return filepath.Join(homeDir, opencodeConfigRelDir), nil
+	return opencodeHomeJoin(opencodeConfigRelDir)
 }
 
 func opencodeAuthPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
-	}
-
-	return filepath.Join(homeDir, opencodeAuthRelPath), nil
+	return opencodeHomeJoin(opencodeAuthRelPath)
 }
 
 func opencodeSystemdUnitDir() (string, error) {
+	return opencodeHomeJoin(systemdUserRelDir)
+}
+
+func opencodeHomeJoin(parts ...string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home directory: %w", err)
 	}
 
-	return filepath.Join(homeDir, systemdUserRelDir), nil
+	return filepath.Join(append([]string{homeDir}, parts...)...), nil
 }
 
 func loadOAuthTokensForAccount(ctx context.Context, app *app, accountID domain.AccountID) (oauthTokens, application.Status, error) {
@@ -98,6 +87,9 @@ func validateOpencodeTokens(tokens oauthTokens) error {
 	}
 	if tokens.RefreshToken == "" {
 		return errors.New("missing refresh token")
+	}
+	if tokens.ExpiresAt <= 0 && tokens.ExpiresIn <= 0 {
+		return errors.New("missing token expiry")
 	}
 	return nil
 }

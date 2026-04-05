@@ -60,16 +60,15 @@ func runOpencodeDoctor(ctx context.Context, app *app) ([]doctorCheck, error) {
 		checks = append(checks, doctorCheck{Name: "account repo", Status: "error", Detail: err.Error()})
 		return checks, nil
 	}
-	_ = statusChecks
-	checks = append(checks, doctorCheck{Name: "account repo", Status: "ok"})
+	checks = append(checks, doctorCheck{Name: "account repo", Status: "ok", Detail: fmt.Sprintf("accounts: %d", len(statusChecks))})
 
 	return checks, nil
 }
 
 func checkReadableFile(name, path string, required bool) doctorCheck {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err == nil {
-		_ = data
+		_ = file.Close()
 		return doctorCheck{Name: name, Status: "ok"}
 	}
 	if os.IsNotExist(err) {

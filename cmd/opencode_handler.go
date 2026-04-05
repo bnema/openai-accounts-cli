@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -128,7 +129,7 @@ func (r opencodeFailureRequest) failure() error {
 		message = fmt.Sprintf("request failed with status %d", r.Status)
 	}
 
-	return fmt.Errorf("%s", message)
+	return errors.New(message)
 }
 
 func loadOpencodeHandlerAuth(cmd *cobra.Command, app *app, accountID domain.AccountID, forceRefresh bool) (*opencodeAuthEntry, error) {
