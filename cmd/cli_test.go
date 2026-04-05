@@ -113,6 +113,111 @@ func TestLimitCommandIsRemoved(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown command \"limit\"")
 }
 
+func TestRootCommandIncludesOpencodeCommands(t *testing.T) {
+	root := newRootCmd()
+	cmd, _, err := root.Find([]string{"opencode", "install"})
+	require.NoError(t, err)
+	assert.Equal(t, "install", cmd.Name())
+}
+
+func TestOpencodeHandleAcceptsJSONFlagAtCobraLayer(t *testing.T) {
+	root := newRootCmd()
+	cmd, _, err := root.Find([]string{"opencode", "handle"})
+	require.NoError(t, err)
+	require.NotNil(t, cmd)
+	assert.Equal(t, "handle", cmd.Name())
+	assert.NotNil(t, cmd.Flags().Lookup("json"))
+
+	home := t.TempDir()
+	_, _, execErr := executeCLI(t, home, "opencode", "handle", "--json")
+	require.Error(t, execErr)
+	assert.Contains(t, execErr.Error(), "not implemented yet")
+}
+
+func TestOpencodeInstallWritesPluginAndConfig(t *testing.T) {
+	home := t.TempDir()
+
+	_, _, err := executeCLI(t, home, "opencode", "install")
+	require.NoError(t, err)
+
+	pluginPath := filepath.Join(home, ".config", "opencode", "plugins", "oa-plugin.js")
+	data, readErr := os.ReadFile(pluginPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), "oa opencode handle --json")
+}
+
+func TestOpencodeDoctorReportsHealthyInstall(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+	binDir := writeFakeOABinary(t)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, _, err := executeCLI(t, home, "opencode", "install")
+	require.NoError(t, err)
+
+	stdout, _, err := executeCLI(t, home, "opencode", "doctor")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "plugin: ok")
+	assert.Contains(t, stdout, "oa binary: ok")
+	assert.Contains(t, stdout, "auth file: missing")
+	assert.Contains(t, stdout, "account repo: ok")
+}
+
+func TestOpencodeDoctorReportsMissingOABinaryWhenNotOnPATH(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	t.Setenv("PATH", "")
+
+	stdout, _, err := executeCLI(t, home, "opencode", "doctor")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "oa binary: error not reachable")
+}
+
+func TestOpencodeDoctorReportsMissingPlugin(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	stdout, _, err := executeCLI(t, home, "opencode", "doctor")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "plugin: missing")
+}
+
+func TestOpencodeSyncWritesOpenAIAuthEntry(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+	accountID := "chatgpt-account-123"
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-1/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-123","refresh_token":"refresh-token-123","id_token":%q,"expires_at":1890000000}`, fakeJWT(fmt.Sprintf(`{"chatgpt_account_id":%q}`, accountID))),
+	)
+	require.NoError(t, err)
+
+	_, _, err = executeCLI(t, home, "opencode", "sync", "--account", "acc-1")
+	require.NoError(t, err)
+
+	authPath := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	data, readErr := os.ReadFile(authPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"openai"`)
+	assert.Contains(t, string(data), fmt.Sprintf(`"accountId": "%s"`, accountID))
+	assert.NotContains(t, string(data), `"accountId":"acc-1"`)
+	assert.NotContains(t, string(data), `"codex"`)
+}
+
+func TestRotateOpencodeCommandIsRemoved(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home, "rotate", "opencode")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown command \"rotate\"")
+}
+
 func TestAccountListShowsConfiguredAccounts(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeAccountsFixture(home))
@@ -413,7 +518,9 @@ func TestUsageCommandFetchesSubscriptionAndRendersRenewal(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeAccountsFixture(home))
 
-	_, _, err := executeCLI(t, home,
+	_, _, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time { return time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC) }
+	},
 		"auth", "set",
 		"--account", "acc-1",
 		"--method", "chatgpt",
@@ -422,7 +529,9 @@ func TestUsageCommandFetchesSubscriptionAndRendersRenewal(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	stdout, _, err := executeCLI(t, home, "usage", "--account", "acc-1")
+	stdout, _, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time { return time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC) }
+	}, "usage", "--account", "acc-1")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "renewal:")
 	assert.Contains(t, stdout, "renews in")
@@ -440,8 +549,29 @@ func executeCLI(t *testing.T, home string, args ...string) (string, string, erro
 	root.SetErr(stderr)
 	root.SetArgs(args)
 
-	err := root.Execute()
-	return stdout.String(), stderr.String(), err
+	executeErr := root.Execute()
+	return stdout.String(), stderr.String(), executeErr
+}
+
+func executeCLIWithHomeAndApp(t *testing.T, home string, configure func(*app), args ...string) (string, string, error) {
+	t.Helper()
+	t.Setenv("HOME", home)
+
+	app, err := wireApp()
+	require.NoError(t, err)
+	if configure != nil {
+		configure(app)
+	}
+
+	root := newRootCmdWithApp(app)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	root.SetArgs(args)
+
+	executeErr := root.Execute()
+	return stdout.String(), stderr.String(), executeErr
 }
 
 func writeAccountsFixture(home string) error {
@@ -466,6 +596,17 @@ secret_ref = ""
 `
 
 	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)
+}
+
+func writeFakeOABinary(t *testing.T) string {
+	t.Helper()
+
+	binDir := t.TempDir()
+	path := filepath.Join(binDir, "oa")
+	contents := []byte("#!/bin/sh\nexit 0\n")
+	require.NoError(t, os.WriteFile(path, contents, 0o755))
+
+	return binDir
 }
 
 func writeAccountsFixtureWithChatGPTAuth(home string) error {
