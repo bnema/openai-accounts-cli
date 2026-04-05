@@ -168,16 +168,10 @@ func recommendedStatuses(statuses []application.Status, now time.Time) []applica
 		if cmp := compareFloatDesc(a.score, b.score); cmp != 0 {
 			return cmp
 		}
-		if a.position != b.position {
-			if a.position < b.position {
-				return -1
-			}
-			return 1
+		if a.position < b.position {
+			return -1
 		}
-		if cmp := strings.Compare(a.sortKey, b.sortKey); cmp != 0 {
-			return cmp
-		}
-		return 0
+		return 1
 	})
 
 	recommended := make([]application.Status, 0, len(candidates))

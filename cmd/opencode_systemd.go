@@ -47,7 +47,9 @@ func renderOpencodeSystemdService(execPath string) string {
 }
 
 func systemdQuote(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	return `"` + escaped + `"`
 }
 
 func renderOpencodeSystemdTimer() string {

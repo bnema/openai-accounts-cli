@@ -21,12 +21,10 @@ func newOpencodeSyncCmd(app *app) *cobra.Command {
 				return application.ErrNoEligibleOpencodeAccount
 			}
 
-			var (
-				status  application.Status
-				syncErr error
-			)
+			var syncErr error
 			for _, candidate := range ranked {
-				status, syncErr = syncAccountIntoOpencode(cmd.Context(), app, candidate.Account.ID)
+				status, err := syncAccountIntoOpencode(cmd.Context(), app, candidate.Account.ID)
+				syncErr = err
 				if syncErr == nil {
 					_, err = fmt.Fprintf(cmd.OutOrStdout(), "synced OpenCode auth for %s (%s)\n", status.Account.Name, status.Account.ID)
 					return err

@@ -6,16 +6,20 @@ func Execute() error {
 	return newRootCmd().Execute()
 }
 
+func newBaseRootCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "oa",
+		Short:         "OpenAI Accounts CLI (oa): manage auth and usage limits",
+		Long:          "oa (OpenAI Accounts CLI) helps you store account auth references, run OpenAI login flows, fetch usage/limit snapshots, and view account status from the terminal.",
+		SilenceUsage:  true,
+		SilenceErrors: false,
+	}
+}
+
 func newRootCmd() *cobra.Command {
 	app, err := wireApp()
 	if err != nil {
-		rootCmd := &cobra.Command{
-			Use:           "oa",
-			Short:         "OpenAI Accounts CLI (oa): manage auth and usage limits",
-			Long:          "oa (OpenAI Accounts CLI) helps you store account auth references, run OpenAI login flows, fetch usage/limit snapshots, and view account status from the terminal.",
-			SilenceUsage:  true,
-			SilenceErrors: false,
-		}
+		rootCmd := newBaseRootCmd()
 
 		rootCmd.RunE = func(_ *cobra.Command, _ []string) error {
 			return err
@@ -27,13 +31,7 @@ func newRootCmd() *cobra.Command {
 }
 
 func newRootCmdWithApp(app *app) *cobra.Command {
-	rootCmd := &cobra.Command{
-		Use:           "oa",
-		Short:         "OpenAI Accounts CLI (oa): manage auth and usage limits",
-		Long:          "oa (OpenAI Accounts CLI) helps you store account auth references, run OpenAI login flows, fetch usage/limit snapshots, and view account status from the terminal.",
-		SilenceUsage:  true,
-		SilenceErrors: false,
-	}
+	rootCmd := newBaseRootCmd()
 
 	rootCmd.AddCommand(
 		newVersionCmd(),

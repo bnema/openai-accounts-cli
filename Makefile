@@ -1,3 +1,5 @@
+.PHONY: build install
+
 build:
 	mkdir -p dist
 	go build -o dist/oa ./cmd/oa

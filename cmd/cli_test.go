@@ -402,6 +402,11 @@ func TestRenderOpencodeSystemdServiceQuotesExecutablePath(t *testing.T) {
 	assert.Contains(t, service, `ExecStart="/tmp/My App/oa" opencode sync`)
 }
 
+func TestRenderOpencodeSystemdServiceEscapesBackslashesInExecutablePath(t *testing.T) {
+	service := renderOpencodeSystemdService(`C:\\Program Files\\oa\\oa.exe`)
+	assert.Contains(t, service, `ExecStart="C:\\\\Program Files\\\\oa\\\\oa.exe" opencode sync`)
+}
+
 func TestOpencodeSyncFallsBackWhenTopRankedAccountTokensAreInvalid(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeOpencodeSyncAccountsFixture(home))

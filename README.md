@@ -1,6 +1,6 @@
 # openai-accounts-cli (oa)
 
-**oa** tracks usage and rotates auth across multiple OpenAI accounts.
+**oa** tracks usage and manages auth across multiple OpenAI accounts.
 
 ## What it does
 
@@ -10,7 +10,7 @@
 - Fetches daily and weekly usage limits from OpenAI
 - Recommends which account to use based on weekly pressure
 - Shows subscription renewal countdowns
-- Rotates credentials into external tools (opencode)
+- Syncs ChatGPT OAuth credentials into OpenCode
 
 ## Install
 
@@ -32,7 +32,11 @@ make install
 | `oa auth set [--account <id>]` | Set account credentials manually (`--method`, `--secret-key`, `--secret-value`) |
 | `oa auth remove --account <id>` | Remove account credentials |
 | `oa usage [--account <id>] [--json]` | Fetch and display usage limits (alias: `status`) |
-| `oa rotate opencode` | Patch opencode's codex auth with the best available account |
+| `oa opencode install` | Install the OpenCode plugin shim |
+| `oa opencode doctor` | Check OpenCode integration state |
+| `oa opencode sync` | Sync OpenCode auth with the best eligible account |
+| `oa opencode install-systemd` | Install a systemd user timer for periodic sync |
+| `oa opencode handle --json` | Handle OpenCode recovery requests via JSON stdin/stdout |
 | `oa version` | Print version |
 
 ## Configuration

@@ -121,10 +121,6 @@ func bestOpencodeStatus(statuses []Status, currentID domain.AccountID, class dom
 		}
 	}
 
-	if best == nil {
-		return nil
-	}
-
 	return best
 }
 

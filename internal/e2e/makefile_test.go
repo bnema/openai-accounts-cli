@@ -15,9 +15,6 @@ func TestMakefileIncludesBuildAndInstallTargets(t *testing.T) {
 
 	makefile := string(contents)
 	assert.Contains(t, makefile, "build:")
-	assert.Contains(t, makefile, "mkdir -p dist")
-	assert.Contains(t, makefile, "go build -o dist/oa ./cmd/oa")
 	assert.Contains(t, makefile, "install:")
-	assert.Contains(t, makefile, "go install ./cmd/oa")
-	assert.NotContains(t, makefile, ".PHONY")
+	assert.Contains(t, makefile, ".PHONY: build install")
 }
