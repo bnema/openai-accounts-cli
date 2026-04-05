@@ -12,6 +12,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	recommendationWeeklyWindowHours = 7.0 * 24.0
+	recommendationExpiryWindowDays  = 30.0
+	recommendationExpiryWeight      = 2.5
+	recommendationWeeklyResetWeight = 0.35
+	recommendationDailyWeight       = 0.10
+)
+
 type RenderOptions struct {
 	Now        time.Time
 	StaleAfter time.Duration
@@ -42,24 +50,36 @@ func renderView(statuses []application.Status, opts RenderOptions, s styles) str
 }
 
 func recommendationLines(statuses []application.Status, now time.Time, s styles) []string {
-	for i, status := range statuses {
-		if !canUseNow(status, now) {
-			continue
-		}
-
+	recommended := recommendedStatuses(statuses, now)
+	if len(recommended) > 0 {
 		lines := []string{
-			s.detail.Render(fmt.Sprintf("recommendation: use %s first", recommendationAccountLabel(status))),
-			s.detail.Render(fmt.Sprintf("details: %s", recommendationDetails(status, now))),
+			s.detail.Render(fmt.Sprintf("recommendation: use %s first", recommendationAccountLabel(recommended[0]))),
+			s.detail.Render(fmt.Sprintf("details: %s", recommendationDetails(recommended[0], now))),
 		}
 
-		if next, ok := nextAvailableStatus(statuses, i+1, now); ok {
+		if len(recommended) > 1 {
+			next := recommended[1]
 			lines = append(lines, s.detail.Render(fmt.Sprintf("next: %s (%s)", recommendationAccountLabel(next), recommendationPrioritySnapshot(next, now))))
 		}
 
 		return lines
 	}
 
+	if hasAvailableStatus(statuses, now) {
+		return []string{s.warning.Render("recommendation: no eligible account now (subscription rules)")}
+	}
+
 	return []string{s.warning.Render("recommendation: no account available now (waiting for reset)")}
+}
+
+func hasAvailableStatus(statuses []application.Status, now time.Time) bool {
+	for _, status := range statuses {
+		if canUseNow(status, now) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func recommendationAccountLabel(status application.Status) string {
@@ -121,14 +141,104 @@ func recommendationLimitSnapshot(limit *application.StatusLimit, now time.Time) 
 	return fmt.Sprintf("%.0f%% left (%s)", leftPercent, reset)
 }
 
-func nextAvailableStatus(statuses []application.Status, start int, now time.Time) (application.Status, bool) {
-	for i := start; i < len(statuses); i++ {
-		if canUseNow(statuses[i], now) {
-			return statuses[i], true
+type recommendationCandidate struct {
+	status   application.Status
+	score    float64
+	sortKey  string
+	position int
+}
+
+func recommendedStatuses(statuses []application.Status, now time.Time) []application.Status {
+	candidates := make([]recommendationCandidate, 0, len(statuses))
+	for i, status := range statuses {
+		eligible, score := recommendationEligibilityScore(status, now)
+		if !eligible {
+			continue
+		}
+
+		candidates = append(candidates, recommendationCandidate{
+			status:   status,
+			score:    score,
+			sortKey:  recommendationSortKey(status),
+			position: i,
+		})
+	}
+
+	slices.SortStableFunc(candidates, func(a, b recommendationCandidate) int {
+		if cmp := compareFloatDesc(a.score, b.score); cmp != 0 {
+			return cmp
+		}
+		if a.position != b.position {
+			if a.position < b.position {
+				return -1
+			}
+			return 1
+		}
+		if cmp := strings.Compare(a.sortKey, b.sortKey); cmp != 0 {
+			return cmp
+		}
+		return 0
+	})
+
+	recommended := make([]application.Status, 0, len(candidates))
+	for _, candidate := range candidates {
+		recommended = append(recommended, candidate.status)
+	}
+
+	return recommended
+}
+
+func recommendationEligibilityScore(status application.Status, now time.Time) (bool, float64) {
+	if !canUseNow(status, now) {
+		return false, 0
+	}
+
+	if status.Subscription != nil {
+		if status.Subscription.ActiveUntil.IsZero() {
+			return false, 0
+		}
+
+		if !status.Subscription.ActiveUntil.After(now) && !status.Subscription.WillRenew {
+			return false, 0
 		}
 	}
 
-	return application.Status{}, false
+	weeklyRemaining := clampUnit(limitLeftPercent(status.WeeklyLimit) / 100)
+	weeklyResetUrgency := recommendationWeeklyResetUrgency(status.WeeklyLimit, now)
+	expiryUrgency := recommendationExpiryUrgency(status.Subscription, now)
+	dailyRemaining := clampUnit(limitLeftPercent(status.DailyLimit) / 100)
+
+	score := weeklyRemaining*(1+recommendationExpiryWeight*expiryUrgency) +
+		recommendationWeeklyResetWeight*weeklyResetUrgency +
+		recommendationDailyWeight*dailyRemaining
+
+	return true, score
+}
+
+func recommendationWeeklyResetUrgency(limit *application.StatusLimit, now time.Time) float64 {
+	if limit == nil {
+		return 0
+	}
+
+	if now.IsZero() || limit.ResetsAt.IsZero() {
+		return 0
+	}
+
+	hoursToWeeklyReset := limit.ResetsAt.Sub(now).Hours()
+	return clampUnit(1 - hoursToWeeklyReset/recommendationWeeklyWindowHours)
+}
+
+func recommendationExpiryUrgency(sub *application.StatusSubscription, now time.Time) float64 {
+	if sub == nil || sub.ActiveUntil.IsZero() || !sub.ActiveUntil.After(now) {
+		return 0
+	}
+
+	daysToExpiry := sub.ActiveUntil.Sub(now).Hours() / 24
+	return clampUnit(1 - daysToExpiry/recommendationExpiryWindowDays)
+}
+
+func recommendationSortKey(status application.Status) string {
+	return strings.ToLower(strings.TrimSpace(string(status.Account.ID) + "|" + status.Account.Name))
 }
 
 type accountPriority struct {
@@ -414,6 +524,16 @@ func clampPercent(v float64) float64 {
 	}
 	if v > 100 {
 		return 100
+	}
+	return v
+}
+
+func clampUnit(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
 	}
 	return v
 }

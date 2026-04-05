@@ -16,6 +16,8 @@
 
 ```bash
 go install github.com/bnema/openai-accounts-cli/cmd/oa@latest
+# or from a clone
+make install
 ```
 
 ## Commands
@@ -46,5 +48,6 @@ go install github.com/bnema/openai-accounts-cli/cmd/oa@latest
 
 ```bash
 go test ./...
-go build -o oa ./cmd/oa
+make build
+make install
 ```
