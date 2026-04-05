@@ -4,7 +4,7 @@
 
 ## What it does
 
-- Stores per-account auth in `~/.codex/accounts.toml`
+- Stores account metadata and secret references in `~/.codex/accounts.toml`
 - Stores secrets via `pass`, with file fallback at `~/.codex/secrets`
 - Supports API key and ChatGPT OAuth auth
 - Fetches daily and weekly usage limits from OpenAI
