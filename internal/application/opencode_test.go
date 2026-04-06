@@ -243,3 +243,119 @@ func TestServiceSelectOpencodeSyncAccountChoosesBestEligibleStatus(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, domain.AccountID("acc-3"), status.Account.ID)
 }
+
+func TestServiceRankOpencodeSyncAccountsUsesSharedOrderingForCompatibleAccounts(t *testing.T) {
+	now := time.Date(2026, time.April, 5, 12, 0, 0, 0, time.UTC)
+
+	repo := mocks.NewMockAccountRepository(t)
+	store := mocks.NewMockSecretStore(t)
+	clock := mocks.NewMockClock(t)
+	clock.EXPECT().Now().Return(now).Once()
+
+	service := NewService(repo, store, clock)
+	repo.EXPECT().List(mockAnyContext()).Return([]domain.Account{
+		{
+			ID:   "api-key-best-overall",
+			Auth: domain.Auth{Method: domain.AuthMethodAPIKey, SecretRef: "openai://api-key-best-overall/api_key"},
+			Subscription: &domain.Subscription{
+				ActiveUntil: now.Add(14 * 24 * time.Hour),
+			},
+			Limits: domain.AccountLimitSnapshots{
+				Daily:  &domain.AccountLimitSnapshot{Percent: 5, ResetsAt: now.Add(24 * time.Hour)},
+				Weekly: &domain.AccountLimitSnapshot{Percent: 5, ResetsAt: now.Add(24 * time.Hour)},
+			},
+		},
+		{
+			ID:   "chatgpt-daily-better-weekly-worse",
+			Auth: domain.Auth{Method: domain.AuthMethodChatGPT, SecretRef: "openai://chatgpt-daily-better-weekly-worse/oauth"},
+			Subscription: &domain.Subscription{
+				ActiveUntil: now.Add(10 * 24 * time.Hour),
+			},
+			Limits: domain.AccountLimitSnapshots{
+				Daily:  &domain.AccountLimitSnapshot{Percent: 10, ResetsAt: now.Add(24 * time.Hour)},
+				Weekly: &domain.AccountLimitSnapshot{Percent: 40, ResetsAt: now.Add(24 * time.Hour)},
+			},
+		},
+		{
+			ID:   "chatgpt-weekly-better",
+			Auth: domain.Auth{Method: domain.AuthMethodChatGPT, SecretRef: "openai://chatgpt-weekly-better/oauth"},
+			Subscription: &domain.Subscription{
+				ActiveUntil: now.Add(12 * 24 * time.Hour),
+			},
+			Limits: domain.AccountLimitSnapshots{
+				Daily:  &domain.AccountLimitSnapshot{Percent: 20, ResetsAt: now.Add(24 * time.Hour)},
+				Weekly: &domain.AccountLimitSnapshot{Percent: 20, ResetsAt: now.Add(24 * time.Hour)},
+			},
+		},
+	}, nil)
+
+	ranked, err := service.RankOpencodeSyncAccounts(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, ranked, 2)
+	assert.Equal(t, []domain.AccountID{
+		"chatgpt-weekly-better",
+		"chatgpt-daily-better-weekly-worse",
+	}, []domain.AccountID{
+		ranked[0].Account.ID,
+		ranked[1].Account.ID,
+	})
+}
+
+func TestServiceRankOpencodeSyncAccountsDoesNotLoseFallbackCandidatesToNonOpencodeUrgentAccounts(t *testing.T) {
+	now := time.Date(2026, time.April, 5, 12, 0, 0, 0, time.UTC)
+
+	repo := mocks.NewMockAccountRepository(t)
+	store := mocks.NewMockSecretStore(t)
+	clock := mocks.NewMockClock(t)
+	clock.EXPECT().Now().Return(now).Once()
+
+	service := NewService(repo, store, clock)
+	repo.EXPECT().List(mockAnyContext()).Return([]domain.Account{
+		{
+			ID:   "api-key-urgent",
+			Auth: domain.Auth{Method: domain.AuthMethodAPIKey, SecretRef: "openai://api-key-urgent/api_key"},
+			Subscription: &domain.Subscription{
+				ActiveUntil: now.Add(24 * time.Hour),
+			},
+			Limits: domain.AccountLimitSnapshots{
+				Daily:  &domain.AccountLimitSnapshot{Percent: 20, ResetsAt: now.Add(24 * time.Hour)},
+				Weekly: &domain.AccountLimitSnapshot{Percent: 5, ResetsAt: now.Add(24 * time.Hour)},
+			},
+		},
+		{
+			ID:   "chatgpt-fallback-best",
+			Auth: domain.Auth{Method: domain.AuthMethodChatGPT, SecretRef: "openai://chatgpt-fallback-best/oauth"},
+			Subscription: &domain.Subscription{
+				ActiveUntil: now.Add(10 * 24 * time.Hour),
+			},
+			Limits: domain.AccountLimitSnapshots{
+				Daily:  &domain.AccountLimitSnapshot{Percent: 15, ResetsAt: now.Add(24 * time.Hour)},
+				Weekly: &domain.AccountLimitSnapshot{Percent: 20, ResetsAt: now.Add(24 * time.Hour)},
+			},
+		},
+		{
+			ID:   "chatgpt-fallback-next",
+			Auth: domain.Auth{Method: domain.AuthMethodChatGPT, SecretRef: "openai://chatgpt-fallback-next/oauth"},
+			Subscription: &domain.Subscription{
+				ActiveUntil: now.Add(12 * 24 * time.Hour),
+			},
+			Limits: domain.AccountLimitSnapshots{
+				Daily:  &domain.AccountLimitSnapshot{Percent: 30, ResetsAt: now.Add(24 * time.Hour)},
+				Weekly: &domain.AccountLimitSnapshot{Percent: 25, ResetsAt: now.Add(24 * time.Hour)},
+			},
+		},
+	}, nil)
+
+	ranked, err := service.RankOpencodeSyncAccounts(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, ranked, 2)
+	assert.Equal(t, []domain.AccountID{
+		"chatgpt-fallback-best",
+		"chatgpt-fallback-next",
+	}, []domain.AccountID{
+		ranked[0].Account.ID,
+		ranked[1].Account.ID,
+	})
+}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 	"time"
 
 	"github.com/bnema/openai-accounts-cli/internal/domain"
@@ -39,17 +38,19 @@ func (s *Service) RankOpencodeSyncAccounts(ctx context.Context) ([]Status, error
 	}
 
 	now := s.clock.Now()
-	ranked := make([]Status, 0, len(statuses))
+	compatible := make([]Status, 0, len(statuses))
 	for _, status := range statuses {
 		if !domain.AccountEligibleForOpencodeFailover(status.Account, now) {
 			continue
 		}
-		ranked = append(ranked, status)
+		compatible = append(compatible, status)
 	}
 
-	sort.Slice(ranked, func(i, j int) bool {
-		return compareOpencodeFailoverStatus(&ranked[i], &ranked[j], domain.OpencodeFailureCooldown) < 0
-	})
+	recommendation := RecommendAccountsFromStatuses(compatible, now)
+	ranked := make([]Status, 0, len(recommendation.Ordered))
+	for _, candidate := range recommendation.Ordered {
+		ranked = append(ranked, candidate.Status)
+	}
 
 	return ranked, nil
 }

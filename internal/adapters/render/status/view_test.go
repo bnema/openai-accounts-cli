@@ -190,10 +190,163 @@ func TestRenderShowsUnavailableUsageHintForChatGPTWithoutTokenSnapshot(t *testin
 	assert.Contains(t, output, "5hours limit:")
 }
 
-func TestRenderPrioritizesAccountsForWeeklyUsage(t *testing.T) {
+func TestRenderRecommendationUsesProvidedResultWithoutRecomputingRanking(t *testing.T) {
+	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
+	statuses := []application.Status{
+		{
+			Account: domain.Account{ID: "acc-display-first", Name: "display-first@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
+			DailyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowDaily,
+				Percent:    20,
+				ResetsAt:   now.Add(4 * time.Hour),
+				CapturedAt: now,
+			},
+			WeeklyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowWeekly,
+				Percent:    10,
+				ResetsAt:   now.Add(24 * time.Hour),
+				CapturedAt: now,
+			},
+		},
+		{
+			Account: domain.Account{ID: "acc-provided", Name: "provided@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
+			DailyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowDaily,
+				Percent:    20,
+				ResetsAt:   now.Add(4 * time.Hour),
+				CapturedAt: now,
+			},
+			WeeklyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowWeekly,
+				Percent:    20,
+				ResetsAt:   now.Add(7 * 24 * time.Hour),
+				CapturedAt: now,
+			},
+		},
+	}
+
+	recommendation := application.RecommendationResult{
+		Pool: domain.SelectionPoolFallback,
+		Ordered: []application.RecommendedAccount{
+			{Status: statuses[1], Pool: domain.SelectionPoolFallback, Rank: 1},
+			{Status: statuses[0], Pool: domain.SelectionPoolFallback, Rank: 2},
+		},
+	}
+	recommendation.Selected = &recommendation.Ordered[0]
+
+	output, err := Render(statuses, RenderOptions{
+		Now:                    now,
+		StaleAfter:             6 * time.Hour,
+		Recommendation:         recommendation,
+		RecommendationProvided: true,
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "recommendation: use provided@example.com")
+	assert.Contains(t, output, "next: display-first@example.com")
+
+	firstDisplayIndex := strings.Index(output, "Account #acc-display-first: display-first@example.com")
+	providedIndex := strings.Index(output, "Account #acc-provided: provided@example.com")
+
+	require.NotEqual(t, -1, firstDisplayIndex)
+	require.NotEqual(t, -1, providedIndex)
+	assert.Less(t, firstDisplayIndex, providedIndex)
+}
+
+func TestRenderOmitsRecommendationSectionWhenNotSupplied(t *testing.T) {
 	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
 
 	output, err := Render([]application.Status{
+		{
+			Account: domain.Account{ID: "acc-1", Name: "available@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
+			DailyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowDaily,
+				Percent:    20,
+				ResetsAt:   now.Add(4 * time.Hour),
+				CapturedAt: now,
+			},
+			WeeklyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowWeekly,
+				Percent:    15,
+				ResetsAt:   now.Add(6 * 24 * time.Hour),
+				CapturedAt: now,
+			},
+		},
+	}, RenderOptions{Now: now, StaleAfter: 6 * time.Hour})
+
+	require.NoError(t, err)
+	assert.NotContains(t, output, "recommendation:")
+	assert.NotContains(t, output, "details:")
+	assert.NotContains(t, output, "next:")
+}
+
+func TestRenderRecommendationUsesProvidedResetExhaustionReason(t *testing.T) {
+	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
+
+	output, err := Render([]application.Status{
+		{
+			Account: domain.Account{ID: "acc-1", Name: "available@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
+			DailyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowDaily,
+				Percent:    20,
+				ResetsAt:   now.Add(4 * time.Hour),
+				CapturedAt: now,
+			},
+			WeeklyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowWeekly,
+				Percent:    15,
+				ResetsAt:   now.Add(6 * 24 * time.Hour),
+				CapturedAt: now,
+			},
+		},
+	}, RenderOptions{
+		Now:                    now,
+		StaleAfter:             6 * time.Hour,
+		Recommendation:         application.RecommendationResult{UnavailableMessage: "recommendation: no account available now (waiting for reset)"},
+		RecommendationProvided: true,
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "recommendation: no account available now (waiting for reset)")
+	assert.NotContains(t, output, "recommendation: use available@example.com")
+}
+
+func TestRenderRecommendationUsesProvidedSubscriptionReason(t *testing.T) {
+	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
+
+	output, err := Render([]application.Status{
+		{
+			Account: domain.Account{ID: "acc-1", Name: "available@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
+			DailyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowDaily,
+				Percent:    20,
+				ResetsAt:   now.Add(4 * time.Hour),
+				CapturedAt: now,
+			},
+			WeeklyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowWeekly,
+				Percent:    15,
+				ResetsAt:   now.Add(6 * 24 * time.Hour),
+				CapturedAt: now,
+			},
+		},
+	}, RenderOptions{
+		Now:        now,
+		StaleAfter: 6 * time.Hour,
+		Recommendation: application.RecommendationResult{
+			UnavailableMessage: "recommendation: no eligible account now (subscription rules)",
+		},
+		RecommendationProvided: true,
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "recommendation: no eligible account now (subscription rules)")
+	assert.NotContains(t, output, "recommendation: no account available now (waiting for reset)")
+}
+
+func TestRenderPreservesSuppliedAccountOrder(t *testing.T) {
+	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
+	statuses := []application.Status{
 		{
 			Account: domain.Account{ID: "acc-blocked", Name: "blocked@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
 			DailyLimit: &application.StatusLimit{
@@ -239,7 +392,23 @@ func TestRenderPrioritizesAccountsForWeeklyUsage(t *testing.T) {
 				CapturedAt: now,
 			},
 		},
-	}, RenderOptions{Now: now, StaleAfter: 6 * time.Hour})
+	}
+
+	recommendation := application.RecommendationResult{
+		Pool: domain.SelectionPoolFallback,
+		Ordered: []application.RecommendedAccount{
+			{Status: statuses[2], Pool: domain.SelectionPoolFallback, Rank: 1},
+			{Status: statuses[1], Pool: domain.SelectionPoolFallback, Rank: 2},
+		},
+	}
+	recommendation.Selected = &recommendation.Ordered[0]
+
+	output, err := Render(statuses, RenderOptions{
+		Now:                    now,
+		StaleAfter:             6 * time.Hour,
+		Recommendation:         recommendation,
+		RecommendationProvided: true,
+	})
 
 	require.NoError(t, err)
 	assert.Contains(t, output, "recommendation:")
@@ -255,386 +424,6 @@ func TestRenderPrioritizesAccountsForWeeklyUsage(t *testing.T) {
 	require.NotEqual(t, -1, bestIndex)
 	require.NotEqual(t, -1, midIndex)
 	require.NotEqual(t, -1, blockedIndex)
-	assert.Less(t, bestIndex, midIndex)
-	assert.Less(t, midIndex, blockedIndex)
-}
-
-func TestRenderRecommendationSkipsIneligibleSubscriptionStates(t *testing.T) {
-	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
-
-	output, err := Render([]application.Status{
-		{
-			Account: domain.Account{ID: "acc-na", Name: "na@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    0,
-				ResetsAt:   now.Add(7 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-			Subscription: &application.StatusSubscription{
-				WillRenew: true,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-expired", Name: "expired@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    5,
-				ResetsAt:   now.Add(7 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-			Subscription: &application.StatusSubscription{
-				ActiveUntil: now.Add(-2 * time.Hour),
-				WillRenew:   false,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-recommended", Name: "recommended@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    30,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    20,
-				ResetsAt:   now.Add(6 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-			Subscription: &application.StatusSubscription{
-				ActiveUntil: now.Add(24 * time.Hour),
-				WillRenew:   true,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-next", Name: "next@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    25,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    25,
-				ResetsAt:   now.Add(6 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-renewed", Name: "renewed@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    30,
-				ResetsAt:   now.Add(6 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-			Subscription: &application.StatusSubscription{
-				ActiveUntil: now.Add(-2 * time.Hour),
-				WillRenew:   true,
-			},
-		},
-	}, RenderOptions{Now: now, StaleAfter: 6 * time.Hour})
-
-	require.NoError(t, err)
-	assert.Contains(t, output, "recommendation: use recommended@example.com")
-	assert.Contains(t, output, "next: next@example.com")
-	assert.NotContains(t, output, "recommendation: use na@example.com")
-	assert.NotContains(t, output, "recommendation: use expired@example.com")
-	assert.NotContains(t, output, "next: na@example.com")
-	assert.NotContains(t, output, "next: expired@example.com")
-}
-
-func TestRenderRecommendationExplainsWhenOnlySubscriptionRulesExcludeAvailableAccounts(t *testing.T) {
-	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
-
-	output, err := Render([]application.Status{
-		{
-			Account: domain.Account{ID: "acc-na", Name: "na@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    20,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    15,
-				ResetsAt:   now.Add(6 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-			Subscription: &application.StatusSubscription{
-				WillRenew: true,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-expired", Name: "expired@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    25,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    10,
-				ResetsAt:   now.Add(6 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-			Subscription: &application.StatusSubscription{
-				ActiveUntil: now.Add(-2 * time.Hour),
-				WillRenew:   false,
-			},
-		},
-	}, RenderOptions{Now: now, StaleAfter: 6 * time.Hour})
-
-	require.NoError(t, err)
-	assert.Contains(t, output, "recommendation: no eligible account now (subscription rules)")
-	assert.NotContains(t, output, "recommendation: no account available now (waiting for reset)")
-}
-
-func TestRenderRecommendationUsesExpiryAwareRankingWithoutChangingDisplayOrder(t *testing.T) {
-	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
-
-	output, err := Render([]application.Status{
-		{
-			Account: domain.Account{ID: "acc-display-first", Name: "display-first@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    20,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    10,
-				ResetsAt:   now.Add(24 * time.Hour),
-				CapturedAt: now,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-recommended", Name: "recommended@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    20,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    20,
-				ResetsAt:   now.Add(7 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-			Subscription: &application.StatusSubscription{
-				ActiveUntil: now.Add(24 * time.Hour),
-				WillRenew:   true,
-			},
-		},
-	}, RenderOptions{Now: now, StaleAfter: 6 * time.Hour})
-
-	require.NoError(t, err)
-	assert.Contains(t, output, "recommendation: use recommended@example.com")
-
-	firstDisplayIndex := strings.Index(output, "Account #acc-display-first: display-first@example.com")
-	recommendedIndex := strings.Index(output, "Account #acc-recommended: recommended@example.com")
-
-	require.NotEqual(t, -1, firstDisplayIndex)
-	require.NotEqual(t, -1, recommendedIndex)
-	assert.Less(t, firstDisplayIndex, recommendedIndex)
-}
-
-func TestRenderRecommendationKeepsPastDueAutoRenewingSubscriptionEligible(t *testing.T) {
-	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
-
-	output, err := Render([]application.Status{
-		{
-			Account: domain.Account{ID: "acc-past-due-renewing", Name: "past-due-renewing@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    30,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    15,
-				ResetsAt:   now.Add(5 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-			Subscription: &application.StatusSubscription{
-				ActiveUntil: now.Add(-48 * time.Hour),
-				WillRenew:   true,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-secondary", Name: "secondary@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    35,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    25,
-				ResetsAt:   now.Add(5 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-		},
-	}, RenderOptions{Now: now, StaleAfter: 6 * time.Hour})
-
-	require.NoError(t, err)
-	assert.Contains(t, output, "recommendation: use past-due-renewing@example.com")
-	assert.Contains(t, output, "next: secondary@example.com")
-}
-
-func TestRenderRecommendationTreatsImmediateWeeklyResetAsMaxUrgency(t *testing.T) {
-	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
-
-	output, err := Render([]application.Status{
-		{
-			Account: domain.Account{ID: "acc-1hour", Name: "one-hour-reset@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    30,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    20,
-				ResetsAt:   now.Add(1 * time.Hour),
-				CapturedAt: now,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-immediate", Name: "immediate-reset@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    30,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    20,
-				ResetsAt:   now,
-				CapturedAt: now,
-			},
-		},
-	}, RenderOptions{Now: now, StaleAfter: 6 * time.Hour})
-
-	require.NoError(t, err)
-	assert.Contains(t, output, "recommendation: use immediate-reset@example.com")
-	assert.Contains(t, output, "next: one-hour-reset@example.com")
-}
-
-func TestRenderRecommendationKeepsDailyRemainingSecondaryToWeeklyAndExpiry(t *testing.T) {
-	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
-
-	output, err := Render([]application.Status{
-		{
-			Account: domain.Account{ID: "acc-high-daily", Name: "high-daily@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    5,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    35,
-				ResetsAt:   now.Add(7 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-expiring", Name: "expiring@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    85,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    20,
-				ResetsAt:   now.Add(24 * time.Hour),
-				CapturedAt: now,
-			},
-			Subscription: &application.StatusSubscription{
-				ActiveUntil: now.Add(24 * time.Hour),
-				WillRenew:   true,
-			},
-		},
-	}, RenderOptions{Now: now, StaleAfter: 6 * time.Hour})
-
-	require.NoError(t, err)
-	assert.Contains(t, output, "recommendation: use expiring@example.com")
-	assert.Contains(t, output, "next: high-daily@example.com")
-}
-
-func TestRecommendationEligibilityScoreTreatsBoundaryExpiryAsIneligible(t *testing.T) {
-	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
-
-	eligible, score := recommendationEligibilityScore(application.Status{
-		Account: domain.Account{ID: "acc-boundary", Name: "boundary@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-		WeeklyLimit: &application.StatusLimit{
-			Window:     application.LimitWindowWeekly,
-			Percent:    20,
-			ResetsAt:   now.Add(24 * time.Hour),
-			CapturedAt: now,
-		},
-		Subscription: &application.StatusSubscription{
-			ActiveUntil: now,
-			WillRenew:   false,
-		},
-	}, now)
-
-	assert.False(t, eligible)
-	assert.Zero(t, score)
-}
-
-func TestRecommendedStatusesPreservesVisibleOrderOnEqualScores(t *testing.T) {
-	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
-	statuses := []application.Status{
-		{
-			Account: domain.Account{ID: "acc-zeta", Name: "zeta@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    30,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    20,
-				ResetsAt:   now.Add(7 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-		},
-		{
-			Account: domain.Account{ID: "acc-alpha", Name: "alpha@example.com", Auth: domain.Auth{Method: domain.AuthMethodChatGPT}},
-			DailyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowDaily,
-				Percent:    30,
-				ResetsAt:   now.Add(4 * time.Hour),
-				CapturedAt: now,
-			},
-			WeeklyLimit: &application.StatusLimit{
-				Window:     application.LimitWindowWeekly,
-				Percent:    20,
-				ResetsAt:   now.Add(7 * 24 * time.Hour),
-				CapturedAt: now,
-			},
-		},
-	}
-
-	recommended := recommendedStatuses(statuses, now)
-
-	require.Len(t, recommended, 2)
-	assert.Equal(t, domain.AccountID("acc-zeta"), recommended[0].Account.ID)
-	assert.Equal(t, domain.AccountID("acc-alpha"), recommended[1].Account.ID)
+	assert.Less(t, blockedIndex, midIndex)
+	assert.Less(t, midIndex, bestIndex)
 }
