@@ -115,7 +115,15 @@ func runUsageFetch(cmd *cobra.Command, app *app, accountID string, asJSON bool) 
 		return err
 	}
 
-	return writeStatusesOutput(cmd, app, updated, 6*time.Hour, asJSON)
+	recommendation := application.RecommendationResult{}
+	recommendationProvided := false
+	now := app.now()
+	if !asJSON {
+		recommendation = application.RecommendAccountsFromStatuses(updated, now)
+		recommendationProvided = true
+	}
+
+	return writeStatusesOutput(cmd, app, updated, recommendation, recommendationProvided, now, 6*time.Hour, asJSON)
 }
 
 func filterChatGPTAccounts(statuses []application.Status) []domain.Account {

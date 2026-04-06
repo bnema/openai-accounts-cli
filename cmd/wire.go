@@ -9,6 +9,7 @@ import (
 	"time"
 
 	statusadapter "github.com/bnema/openai-accounts-cli/internal/adapters/render/status"
+	localrepo "github.com/bnema/openai-accounts-cli/internal/adapters/repo/local"
 	tomlrepo "github.com/bnema/openai-accounts-cli/internal/adapters/repo/toml"
 	chainstore "github.com/bnema/openai-accounts-cli/internal/adapters/secrets/chain"
 	"github.com/bnema/openai-accounts-cli/internal/application"
@@ -51,8 +52,10 @@ func wireApp() (*app, error) {
 		return nil, fmt.Errorf("wire secret store chain: %w", err)
 	}
 
+	selectionHistory := localrepo.NewSelectionHistory(filepath.Join(homeDir, ".codex", "selection-history.json"))
+
 	return &app{
-		service:        application.NewService(repo, secretStore, ports.SystemClock{}),
+		service:        application.NewService(repo, secretStore, ports.SystemClock{}, selectionHistory),
 		secretStore:    secretStore,
 		statusRenderer: statusadapter.Render,
 		browserLogin: browserLoginConfig{

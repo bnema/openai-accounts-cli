@@ -12,6 +12,11 @@ import (
 	"testing"
 	"time"
 
+	statusadapter "github.com/bnema/openai-accounts-cli/internal/adapters/render/status"
+	"github.com/bnema/openai-accounts-cli/internal/application"
+	"github.com/bnema/openai-accounts-cli/internal/domain"
+
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -377,6 +382,70 @@ func TestOpencodeSyncPreservesOtherProviderEntries(t *testing.T) {
 	assert.NotContains(t, string(data), `"access": "stale"`)
 }
 
+func TestOpencodeSyncEvenlyRecordsSelectionHistoryOnSuccess(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	_, _, err = executeCLI(t, home, "opencode", "sync", "--evenly")
+	require.NoError(t, err)
+
+	historyPath := filepath.Join(home, ".codex", "selection-history.json")
+	historyData, readErr := os.ReadFile(historyPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(historyData), `"account_id":"acc-3"`)
+}
+
+func TestOpencodeSyncEvenlyReturnsErrorWhenRecordingSelectionHistoryFails(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	historyPath := filepath.Join(home, ".codex", "selection-history.json")
+	require.NoError(t, os.WriteFile(historyPath, []byte(`{`), 0o644))
+
+	_, _, err = executeCLI(t, home, "opencode", "sync", "--evenly")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "record selection history")
+
+	authPath := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	authData, readErr := os.ReadFile(authPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(authData), `"accountId": "chatgpt-account-3"`)
+}
+
 func TestOpencodeInstallSystemdWritesUserUnits(t *testing.T) {
 	home := t.TempDir()
 
@@ -699,6 +768,133 @@ func TestUsageCommandJSONOutput(t *testing.T) {
 	assert.Contains(t, stdout, "\"WeeklyLimit\"")
 }
 
+func TestUsageCommandPassesSharedRecommendationToRenderer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/wham/usage":
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":21,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":47,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
+		case r.URL.Path == "/subscriptions":
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","active_start":"2026-01-01T00:00:00Z","active_until":"2030-01-01T00:00:00Z","will_renew":true,"billing_period":"monthly","billing_currency":"USD","is_delinquent":false}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	_, _, err := executeCLIWithHomeAndApp(t, home, nil,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-1/oauth_tokens",
+		"--secret-value", `{"access_token":"access-token-123","id_token":""}`,
+	)
+	require.NoError(t, err)
+
+	stdout, _, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.statusRenderer = func(statuses []application.Status, opts statusadapter.RenderOptions) (string, error) {
+			require.True(t, opts.RecommendationProvided)
+			require.NotNil(t, opts.Recommendation.Selected)
+			assert.Equal(t, domain.AccountID("acc-1"), opts.Recommendation.Selected.Status.Account.ID)
+			assert.Len(t, opts.Recommendation.Ordered, 1)
+			assert.Len(t, statuses, 1)
+			return "renderer saw recommendation", nil
+		}
+	}, "usage", "--account", "acc-1")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "renderer saw recommendation")
+}
+
+func TestUsageCommandComputesRecommendationFromRenderedSubset(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeUsageSubsetRecommendationFixture(home))
+
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	nowCalls := 0
+
+	stdout, _, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time {
+			nowCalls++
+			return now
+		}
+		app.statusRenderer = func(statuses []application.Status, opts statusadapter.RenderOptions) (string, error) {
+			require.Len(t, statuses, 1)
+			assert.Equal(t, domain.AccountID("acc-1"), statuses[0].Account.ID)
+			assert.Equal(t, now, opts.Now)
+			require.True(t, opts.RecommendationProvided)
+			assert.Empty(t, opts.Recommendation.Ordered)
+			assert.Equal(t, "recommendation: no account available now (waiting for reset)", opts.Recommendation.UnavailableMessage)
+			return "subset recommendation checked", nil
+		}
+	}, "usage", "--account", "acc-1")
+	require.NoError(t, err)
+	assert.Equal(t, 1, nowCalls)
+	assert.Contains(t, stdout, "subset recommendation checked")
+}
+
+func TestWriteStatusesOutputOrdersStatusesBeforeRendering(t *testing.T) {
+	now := time.Date(2026, 2, 14, 11, 0, 0, 0, time.UTC)
+	cmd := &cobra.Command{}
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	nowCalls := 0
+
+	app := &app{
+		now: func() time.Time {
+			nowCalls++
+			return now
+		},
+		statusRenderer: func(statuses []application.Status, opts statusadapter.RenderOptions) (string, error) {
+			require.Len(t, statuses, 2)
+			assert.Equal(t, domain.AccountID("acc-best"), statuses[0].Account.ID)
+			assert.Equal(t, domain.AccountID("acc-blocked"), statuses[1].Account.ID)
+			assert.Equal(t, now, opts.Now)
+			return "ordered", nil
+		},
+	}
+
+	err := writeStatusesOutput(cmd, app, []application.Status{
+		{
+			Account: domain.Account{ID: "acc-blocked", Name: "blocked@example.com"},
+			DailyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowDaily,
+				Percent:    0,
+				ResetsAt:   now.Add(5 * time.Hour),
+				CapturedAt: now,
+			},
+			WeeklyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowWeekly,
+				Percent:    100,
+				ResetsAt:   now.Add(2 * time.Hour),
+				CapturedAt: now,
+			},
+		},
+		{
+			Account: domain.Account{ID: "acc-best", Name: "best@example.com"},
+			DailyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowDaily,
+				Percent:    20,
+				ResetsAt:   now.Add(5 * time.Hour),
+				CapturedAt: now,
+			},
+			WeeklyLimit: &application.StatusLimit{
+				Window:     application.LimitWindowWeekly,
+				Percent:    0,
+				ResetsAt:   now.Add(5 * 24 * time.Hour),
+				CapturedAt: now,
+			},
+		},
+	}, application.RecommendationResult{}, false, now, 6*time.Hour, false)
+
+	require.NoError(t, err)
+	assert.Zero(t, nowCalls)
+	assert.Contains(t, stdout.String(), "ordered")
+}
+
 func TestUsageCommandShowsFetchingSpinnerMessage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
@@ -1008,6 +1204,61 @@ secret_ref = "openai://acc-1/oauth_tokens"
 [accounts.auth]
 method = "chatgpt"
 secret_ref = "openai://acc-1/oauth_tokens"
+`
+
+	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)
+}
+
+func writeUsageSubsetRecommendationFixture(home string) error {
+	configDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return err
+	}
+
+	accounts := `version = 1
+
+[[accounts]]
+id = "acc-1"
+name = "Reset Blocked"
+
+[accounts.metadata]
+provider = "openai"
+model = "gpt-5"
+
+[accounts.auth]
+method = ""
+secret_ref = ""
+
+[accounts.limits.daily]
+percent = 100
+resets_at = "2026-04-05T12:30:00Z"
+captured_at = "2026-04-05T12:00:00Z"
+
+[accounts.subscription]
+active_start = "2026-04-01T00:00:00Z"
+active_until = "2026-05-01T00:00:00Z"
+will_renew = true
+billing_period = "monthly"
+billing_currency = "USD"
+is_delinquent = false
+captured_at = "2026-04-05T12:00:00Z"
+
+[[accounts]]
+id = "acc-2"
+name = "Subscription Blocked"
+
+[accounts.metadata]
+provider = "openai"
+model = "gpt-5"
+
+[accounts.auth]
+method = ""
+secret_ref = ""
+
+[accounts.limits.daily]
+percent = 25
+resets_at = "2026-04-05T13:00:00Z"
+captured_at = "2026-04-05T12:00:00Z"
 `
 
 	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)

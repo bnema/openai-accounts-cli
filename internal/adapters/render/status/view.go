@@ -3,7 +3,6 @@ package status
 import (
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 	"time"
 
@@ -12,21 +11,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const (
-	recommendationWeeklyWindowHours = 7.0 * 24.0
-	recommendationExpiryWindowDays  = 30.0
-	recommendationExpiryWeight      = 2.5
-	recommendationWeeklyResetWeight = 0.35
-	recommendationDailyWeight       = 0.10
-)
-
 type RenderOptions struct {
-	Now        time.Time
-	StaleAfter time.Duration
+	Now                    time.Time
+	StaleAfter             time.Duration
+	Recommendation         application.RecommendationResult
+	RecommendationProvided bool
 }
 
 func renderView(statuses []application.Status, opts RenderOptions, s styles) string {
-	ordered := prioritizeStatuses(statuses, opts.Now)
+	ordered := statuses
 
 	lines := []string{
 		s.title.Render("OpenAI Account Usage"),
@@ -38,7 +31,7 @@ func renderView(statuses []application.Status, opts RenderOptions, s styles) str
 		return lipgloss.JoinVertical(lipgloss.Left, lines...)
 	}
 
-	for _, recommendation := range recommendationLines(ordered, opts.Now, s) {
+	for _, recommendation := range recommendationLines(ordered, opts.Recommendation, opts.RecommendationProvided, opts.Now, s) {
 		lines = append(lines, recommendation)
 	}
 
@@ -49,37 +42,43 @@ func renderView(statuses []application.Status, opts RenderOptions, s styles) str
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
-func recommendationLines(statuses []application.Status, now time.Time, s styles) []string {
-	recommended := recommendedStatuses(statuses, now)
-	if len(recommended) > 0 {
+func recommendationLines(statuses []application.Status, recommendation application.RecommendationResult, provided bool, now time.Time, s styles) []string {
+	if !provided {
+		return nil
+	}
+
+	visible := recommendationForStatuses(statuses, recommendation)
+	if len(visible) > 0 {
 		lines := []string{
-			s.detail.Render(fmt.Sprintf("recommendation: use %s first", recommendationAccountLabel(recommended[0]))),
-			s.detail.Render(fmt.Sprintf("details: %s", recommendationDetails(recommended[0], now))),
+			s.detail.Render(fmt.Sprintf("recommendation: use %s first", recommendationAccountLabel(visible[0].Status))),
+			s.detail.Render(fmt.Sprintf("details: %s", recommendationDetails(visible[0].Status, now))),
 		}
 
-		if len(recommended) > 1 {
-			next := recommended[1]
+		if len(visible) > 1 {
+			next := visible[1].Status
 			lines = append(lines, s.detail.Render(fmt.Sprintf("next: %s (%s)", recommendationAccountLabel(next), recommendationPrioritySnapshot(next, now))))
 		}
 
 		return lines
 	}
 
-	if hasAvailableStatus(statuses, now) {
-		return []string{s.warning.Render("recommendation: no eligible account now (subscription rules)")}
-	}
-
-	return []string{s.warning.Render("recommendation: no account available now (waiting for reset)")}
+	return []string{s.warning.Render(recommendation.UnavailableMessage)}
 }
 
-func hasAvailableStatus(statuses []application.Status, now time.Time) bool {
+func recommendationForStatuses(statuses []application.Status, recommendation application.RecommendationResult) []application.RecommendedAccount {
+	visibleIDs := make(map[domain.AccountID]struct{}, len(statuses))
 	for _, status := range statuses {
-		if canUseNow(status, now) {
-			return true
+		visibleIDs[status.Account.ID] = struct{}{}
+	}
+
+	visible := make([]application.RecommendedAccount, 0, len(recommendation.Ordered))
+	for _, candidate := range recommendation.Ordered {
+		if _, ok := visibleIDs[candidate.Status.Account.ID]; ok {
+			visible = append(visible, candidate)
 		}
 	}
 
-	return false
+	return visible
 }
 
 func recommendationAccountLabel(status application.Status) string {
@@ -141,258 +140,12 @@ func recommendationLimitSnapshot(limit *application.StatusLimit, now time.Time) 
 	return fmt.Sprintf("%.0f%% left (%s)", leftPercent, reset)
 }
 
-type recommendationCandidate struct {
-	status   application.Status
-	score    float64
-	sortKey  string
-	position int
-}
-
-func recommendedStatuses(statuses []application.Status, now time.Time) []application.Status {
-	candidates := make([]recommendationCandidate, 0, len(statuses))
-	for i, status := range statuses {
-		eligible, score := recommendationEligibilityScore(status, now)
-		if !eligible {
-			continue
-		}
-
-		candidates = append(candidates, recommendationCandidate{
-			status:   status,
-			score:    score,
-			sortKey:  recommendationSortKey(status),
-			position: i,
-		})
-	}
-
-	slices.SortStableFunc(candidates, func(a, b recommendationCandidate) int {
-		if cmp := compareFloatDesc(a.score, b.score); cmp != 0 {
-			return cmp
-		}
-		if a.position < b.position {
-			return -1
-		}
-		return 1
-	})
-
-	recommended := make([]application.Status, 0, len(candidates))
-	for _, candidate := range candidates {
-		recommended = append(recommended, candidate.status)
-	}
-
-	return recommended
-}
-
-func recommendationEligibilityScore(status application.Status, now time.Time) (bool, float64) {
-	if !canUseNow(status, now) {
-		return false, 0
-	}
-
-	if status.Subscription != nil {
-		if status.Subscription.ActiveUntil.IsZero() {
-			return false, 0
-		}
-
-		if !status.Subscription.ActiveUntil.After(now) && !status.Subscription.WillRenew {
-			return false, 0
-		}
-	}
-
-	weeklyRemaining := clampUnit(limitLeftPercent(status.WeeklyLimit) / 100)
-	weeklyResetUrgency := recommendationWeeklyResetUrgency(status.WeeklyLimit, now)
-	expiryUrgency := recommendationExpiryUrgency(status.Subscription, now)
-	dailyRemaining := clampUnit(limitLeftPercent(status.DailyLimit) / 100)
-
-	score := weeklyRemaining*(1+recommendationExpiryWeight*expiryUrgency) +
-		recommendationWeeklyResetWeight*weeklyResetUrgency +
-		recommendationDailyWeight*dailyRemaining
-
-	return true, score
-}
-
-func recommendationWeeklyResetUrgency(limit *application.StatusLimit, now time.Time) float64 {
-	if limit == nil {
-		return 0
-	}
-
-	if now.IsZero() || limit.ResetsAt.IsZero() {
-		return 0
-	}
-
-	hoursToWeeklyReset := limit.ResetsAt.Sub(now).Hours()
-	return clampUnit(1 - hoursToWeeklyReset/recommendationWeeklyWindowHours)
-}
-
-func recommendationExpiryUrgency(sub *application.StatusSubscription, now time.Time) float64 {
-	if sub == nil || sub.ActiveUntil.IsZero() || !sub.ActiveUntil.After(now) {
-		return 0
-	}
-
-	daysToExpiry := sub.ActiveUntil.Sub(now).Hours() / 24
-	return clampUnit(1 - daysToExpiry/recommendationExpiryWindowDays)
-}
-
-func recommendationSortKey(status application.Status) string {
-	return strings.ToLower(strings.TrimSpace(string(status.Account.ID) + "|" + status.Account.Name))
-}
-
-type accountPriority struct {
-	availableNow      bool
-	hasWeekly         bool
-	weeklyPressure    float64
-	weeklyLeftPercent float64
-	dailyLeftPercent  float64
-	weeklyResetHours  float64
-	sortKey           string
-}
-
-// PrioritizeStatuses returns a copy of statuses sorted by account priority:
-// available accounts first, then by weekly pressure, capacity, and reset time.
-func PrioritizeStatuses(statuses []application.Status, now time.Time) []application.Status {
-	return prioritizeStatuses(statuses, now)
-}
-
-func prioritizeStatuses(statuses []application.Status, now time.Time) []application.Status {
-	ordered := append([]application.Status(nil), statuses...)
-
-	slices.SortStableFunc(ordered, func(a, b application.Status) int {
-		left := buildAccountPriority(a, now)
-		right := buildAccountPriority(b, now)
-
-		if cmp := compareBoolDesc(left.availableNow, right.availableNow); cmp != 0 {
-			return cmp
-		}
-		if cmp := compareFloatDesc(left.weeklyPressure, right.weeklyPressure); cmp != 0 {
-			return cmp
-		}
-		if cmp := compareBoolDesc(left.hasWeekly, right.hasWeekly); cmp != 0 {
-			return cmp
-		}
-		if cmp := compareFloatDesc(left.weeklyLeftPercent, right.weeklyLeftPercent); cmp != 0 {
-			return cmp
-		}
-		if cmp := compareFloatDesc(left.dailyLeftPercent, right.dailyLeftPercent); cmp != 0 {
-			return cmp
-		}
-		if cmp := compareFloatAsc(left.weeklyResetHours, right.weeklyResetHours); cmp != 0 {
-			return cmp
-		}
-
-		return strings.Compare(left.sortKey, right.sortKey)
-	})
-
-	return ordered
-}
-
-func buildAccountPriority(status application.Status, now time.Time) accountPriority {
-	weeklyLeft := limitLeftPercent(status.WeeklyLimit)
-	dailyLeft := limitLeftPercent(status.DailyLimit)
-	hasWeekly := status.WeeklyLimit != nil
-	weeklyHours := weeklyResetHours(status.WeeklyLimit, now)
-	weeklyPressure := 0.0
-
-	if hasWeekly && weeklyLeft > 0 {
-		weeklyPressure = weeklyLeft / math.Max(weeklyHours, 1)
-	}
-
-	return accountPriority{
-		availableNow:      canUseNow(status, now),
-		hasWeekly:         hasWeekly,
-		weeklyPressure:    weeklyPressure,
-		weeklyLeftPercent: weeklyLeft,
-		dailyLeftPercent:  dailyLeft,
-		weeklyResetHours:  weeklyHours,
-		sortKey:           strings.ToLower(strings.TrimSpace(string(status.Account.ID) + "|" + status.Account.Name)),
-	}
-}
-
-func canUseNow(status application.Status, now time.Time) bool {
-	if limitBlocksNow(status.WeeklyLimit, now) {
-		return false
-	}
-
-	if limitBlocksNow(status.DailyLimit, now) {
-		return false
-	}
-
-	return true
-}
-
-func limitBlocksNow(limit *application.StatusLimit, now time.Time) bool {
-	if limit == nil {
-		return false
-	}
-
-	if limitLeftPercent(limit) > 0 {
-		return false
-	}
-
-	if now.IsZero() || limit.ResetsAt.IsZero() {
-		return true
-	}
-
-	return limit.ResetsAt.After(now)
-}
-
 func limitLeftPercent(limit *application.StatusLimit) float64 {
 	if limit == nil {
 		return 0
 	}
 
 	return clampPercent(100 - limit.Percent)
-}
-
-func weeklyResetHours(limit *application.StatusLimit, now time.Time) float64 {
-	const weeklyWindowHours = 7.0 * 24.0
-
-	if limit == nil {
-		return weeklyWindowHours
-	}
-
-	if now.IsZero() || limit.ResetsAt.IsZero() {
-		return weeklyWindowHours
-	}
-
-	remaining := limit.ResetsAt.Sub(now)
-	if remaining <= 0 {
-		return 1
-	}
-
-	hours := remaining.Hours()
-	if hours < 1 {
-		return 1
-	}
-
-	return hours
-}
-
-func compareBoolDesc(left, right bool) int {
-	if left == right {
-		return 0
-	}
-	if left {
-		return -1
-	}
-	return 1
-}
-
-func compareFloatDesc(left, right float64) int {
-	if math.Abs(left-right) < 1e-9 {
-		return 0
-	}
-	if left > right {
-		return -1
-	}
-	return 1
-}
-
-func compareFloatAsc(left, right float64) int {
-	if math.Abs(left-right) < 1e-9 {
-		return 0
-	}
-	if left < right {
-		return -1
-	}
-	return 1
 }
 
 func renderAccount(status application.Status, opts RenderOptions, s styles) string {
@@ -414,14 +167,6 @@ func renderAccount(status application.Status, opts RenderOptions, s styles) stri
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-func authLabel(method domain.AuthMethod) string {
-	if method == "" {
-		return "none"
-	}
-
-	return string(method)
 }
 
 func limitLines(status application.Status, opts RenderOptions, s styles) []string {
@@ -518,16 +263,6 @@ func clampPercent(v float64) float64 {
 	}
 	if v > 100 {
 		return 100
-	}
-	return v
-}
-
-func clampUnit(v float64) float64 {
-	if v < 0 {
-		return 0
-	}
-	if v > 1 {
-		return 1
 	}
 	return v
 }

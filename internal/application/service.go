@@ -13,21 +13,44 @@ import (
 var ErrUnsupportedWindowKind = errors.New("unsupported limit window kind")
 
 type Service struct {
-	repo  ports.AccountRepository
-	store ports.SecretStore
-	clock ports.Clock
+	repo             ports.AccountRepository
+	store            ports.SecretStore
+	clock            ports.Clock
+	selectionHistory ports.SelectionHistory
 }
 
-func NewService(repo ports.AccountRepository, store ports.SecretStore, clock ports.Clock) *Service {
+func NewService(repo ports.AccountRepository, store ports.SecretStore, clock ports.Clock, selectionHistory ...ports.SelectionHistory) *Service {
 	if clock == nil {
 		clock = ports.SystemClock{}
 	}
 
-	return &Service{
-		repo:  repo,
-		store: store,
-		clock: clock,
+	var history ports.SelectionHistory
+	if len(selectionHistory) > 0 {
+		history = selectionHistory[0]
 	}
+
+	return &Service{
+		repo:             repo,
+		store:            store,
+		clock:            clock,
+		selectionHistory: history,
+	}
+}
+
+func (s *Service) RecordSelection(ctx context.Context, id domain.AccountID) error {
+	if s.selectionHistory == nil {
+		return nil
+	}
+
+	return s.selectionHistory.RecordSelection(ctx, id, s.clock.Now())
+}
+
+func (s *Service) RecentSelections(ctx context.Context, within time.Duration) ([]domain.AccountID, error) {
+	if s.selectionHistory == nil {
+		return []domain.AccountID{}, nil
+	}
+
+	return s.selectionHistory.RecentSelections(ctx, s.clock.Now().Add(-within))
 }
 
 func (s *Service) SetAuth(ctx context.Context, id domain.AccountID, method domain.AuthMethod, secretKey, secretValue string) error {

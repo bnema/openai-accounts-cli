@@ -571,6 +571,59 @@ func TestServiceSetSubscription(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestServiceRecordSelectionDelegatesToHistory(t *testing.T) {
+	repo := mocks.NewMockAccountRepository(t)
+	store := mocks.NewMockSecretStore(t)
+	clock := mocks.NewMockClock(t)
+	history := mocks.NewMockSelectionHistory(t)
+	service := NewService(repo, store, clock, history)
+
+	now := time.Date(2026, time.April, 6, 10, 0, 0, 0, time.UTC)
+	clock.EXPECT().Now().Return(now).Once()
+	history.EXPECT().RecordSelection(mockAnyContext(), domain.AccountID("acc-1"), now).Return(nil)
+
+	err := service.RecordSelection(context.Background(), "acc-1")
+	require.NoError(t, err)
+}
+
+func TestServiceRecordSelectionReturnsNilWhenHistoryMissing(t *testing.T) {
+	repo := mocks.NewMockAccountRepository(t)
+	store := mocks.NewMockSecretStore(t)
+	clock := mocks.NewMockClock(t)
+	service := NewService(repo, store, clock)
+
+	err := service.RecordSelection(context.Background(), "acc-1")
+	require.NoError(t, err)
+}
+
+func TestServiceRecentSelectionsDelegatesToHistory(t *testing.T) {
+	repo := mocks.NewMockAccountRepository(t)
+	store := mocks.NewMockSecretStore(t)
+	clock := mocks.NewMockClock(t)
+	history := mocks.NewMockSelectionHistory(t)
+	service := NewService(repo, store, clock, history)
+
+	now := time.Date(2026, time.April, 6, 10, 0, 0, 0, time.UTC)
+	within := 15 * time.Minute
+	clock.EXPECT().Now().Return(now).Once()
+	history.EXPECT().RecentSelections(mockAnyContext(), now.Add(-within)).Return([]domain.AccountID{"acc-1", "acc-2"}, nil)
+
+	recent, err := service.RecentSelections(context.Background(), within)
+	require.NoError(t, err)
+	assert.Equal(t, []domain.AccountID{"acc-1", "acc-2"}, recent)
+}
+
+func TestServiceRecentSelectionsReturnsEmptyWhenHistoryMissing(t *testing.T) {
+	repo := mocks.NewMockAccountRepository(t)
+	store := mocks.NewMockSecretStore(t)
+	clock := mocks.NewMockClock(t)
+	service := NewService(repo, store, clock)
+
+	recent, err := service.RecentSelections(context.Background(), 15*time.Minute)
+	require.NoError(t, err)
+	assert.Empty(t, recent)
+}
+
 func mockAnyContext() interface{} {
 	return mock.Anything
 }

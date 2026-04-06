@@ -11,16 +11,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func writeStatusesOutput(cmd *cobra.Command, app *app, statuses []application.Status, staleAfter time.Duration, asJSON bool) error {
+func writeStatusesOutput(cmd *cobra.Command, app *app, statuses []application.Status, recommendation application.RecommendationResult, recommendationProvided bool, now time.Time, staleAfter time.Duration, asJSON bool) error {
 	if asJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(statuses)
 	}
 
-	rendered, err := app.statusRenderer(statuses, statusadapter.RenderOptions{
-		Now:        app.now(),
-		StaleAfter: staleAfter,
+	ordered := application.OrderStatuses(statuses, now)
+
+	rendered, err := app.statusRenderer(ordered, statusadapter.RenderOptions{
+		Now:                    now,
+		StaleAfter:             staleAfter,
+		Recommendation:         recommendation,
+		RecommendationProvided: recommendationProvided,
 	})
 	if err != nil {
 		return fmt.Errorf("render status: %w", err)
