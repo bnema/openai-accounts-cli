@@ -9,12 +9,12 @@ import (
 )
 
 const selectionFairnessWindow = 30 * 24 * time.Hour
-const selectionFairnessPressureTolerance = 0.05
 
 type RecommendedAccount struct {
-	Status Status
-	Pool   domain.SelectionPool
-	Rank   int
+	Status             Status
+	Pool               domain.SelectionPool
+	Rank               int
+	selectionCandidate domain.SelectionCandidate
 }
 
 type RecommendationUnavailableReason string
@@ -99,9 +99,10 @@ func RecommendAccountsFromStatuses(statuses []Status, now time.Time) Recommendat
 
 	for _, ranked := range ranking.Candidates {
 		result.Ordered = append(result.Ordered, RecommendedAccount{
-			Status: statusesByID[ranked.Candidate.AccountID],
-			Pool:   ranked.Pool,
-			Rank:   ranked.Rank,
+			Status:             statusesByID[ranked.Candidate.AccountID],
+			Pool:               ranked.Pool,
+			Rank:               ranked.Rank,
+			selectionCandidate: ranked.Candidate,
 		})
 	}
 
@@ -193,29 +194,9 @@ func recommendationTopBand(recommendation RecommendationResult, now time.Time) [
 }
 
 func recommendedAccountInTopBand(best, candidate RecommendedAccount, now time.Time) bool {
-	bestCandidate := domain.SelectionCandidateFromAccount(best.Status.Account, now)
-	candidateSelection := domain.SelectionCandidateFromAccount(candidate.Status.Account, now)
-
-	return selectionPressureWithinTolerance(domain.SelectionSubscriptionWeeklyPressure(bestCandidate, now), domain.SelectionSubscriptionWeeklyPressure(candidateSelection, now)) &&
-		selectionPressureWithinTolerance(domain.SelectionWeeklyResetPressure(bestCandidate, now), domain.SelectionWeeklyResetPressure(candidateSelection, now)) &&
-		selectionPressureWithinTolerance(domain.SelectionDailyResetPressure(bestCandidate, now), domain.SelectionDailyResetPressure(candidateSelection, now))
-}
-
-func selectionPressureWithinTolerance(left, right float64) bool {
-	diff := left - right
-	if diff < 0 {
-		diff = -diff
-	}
-
-	largest := left
-	if right > largest {
-		largest = right
-	}
-	if largest <= 0 {
-		return true
-	}
-
-	return diff/largest <= selectionFairnessPressureTolerance
+	return domain.SelectionPressureWithinRelativeTolerance(domain.SelectionSubscriptionWeeklyPressure(best.selectionCandidate, now), domain.SelectionSubscriptionWeeklyPressure(candidate.selectionCandidate, now)) &&
+		domain.SelectionPressureWithinRelativeTolerance(domain.SelectionWeeklyResetPressure(best.selectionCandidate, now), domain.SelectionWeeklyResetPressure(candidate.selectionCandidate, now)) &&
+		domain.SelectionPressureWithinRelativeTolerance(domain.SelectionDailyResetPressure(best.selectionCandidate, now), domain.SelectionDailyResetPressure(candidate.selectionCandidate, now))
 }
 
 func leastUsedRecommendedAccountID(candidates []RecommendedAccount, recent []domain.AccountID) domain.AccountID {

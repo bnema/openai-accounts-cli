@@ -11,7 +11,9 @@ const (
 	SelectionPoolFallback SelectionPool = "fallback"
 )
 
-const selectionPressureRelativeTolerance = 0.05
+// SelectionPressureRelativeTolerance is the maximum relative difference for two
+// pressure scores to be treated as equivalent.
+const SelectionPressureRelativeTolerance = 0.05
 
 type SelectionCandidate struct {
 	AccountID       AccountID
@@ -133,7 +135,7 @@ func compareSelectionRemaining(left, right float64) int {
 }
 
 func compareSelectionPressure(left, right float64) int {
-	if selectionPressureWithinRelativeTolerance(left, right) {
+	if SelectionPressureWithinRelativeTolerance(left, right) {
 		return 0
 	}
 	if left > right {
@@ -142,7 +144,9 @@ func compareSelectionPressure(left, right float64) int {
 	return 1
 }
 
-func selectionPressureWithinRelativeTolerance(left, right float64) bool {
+// SelectionPressureWithinRelativeTolerance reports whether two pressure scores
+// are close enough to be treated as equivalent for account selection.
+func SelectionPressureWithinRelativeTolerance(left, right float64) bool {
 	diff := left - right
 	if diff < 0 {
 		diff = -diff
@@ -159,7 +163,7 @@ func selectionPressureWithinRelativeTolerance(left, right float64) bool {
 		return true
 	}
 
-	return diff/largest <= selectionPressureRelativeTolerance
+	return diff/largest <= SelectionPressureRelativeTolerance
 }
 
 // SelectionSubscriptionWeeklyPressure estimates how much weekly capacity must be used per hour
