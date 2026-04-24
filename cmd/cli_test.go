@@ -118,11 +118,38 @@ func TestLimitCommandIsRemoved(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown command \"limit\"")
 }
 
-func TestRootCommandIncludesOpencodeCommands(t *testing.T) {
+func TestRootCommandIncludesInstallAndHandleOpencodeCommands(t *testing.T) {
 	root := newRootCmd()
-	cmd, _, err := root.Find([]string{"opencode", "install"})
+
+	installCmd, _, err := root.Find([]string{"install", "opencode"})
 	require.NoError(t, err)
-	assert.Equal(t, "install", cmd.Name())
+	assert.Equal(t, "opencode", installCmd.Name())
+
+	handleCmd, _, err := root.Find([]string{"handle", "opencode"})
+	require.NoError(t, err)
+	assert.Equal(t, "opencode", handleCmd.Name())
+}
+
+func TestInstallCommandWithoutTargetPrintsHelp(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	stdout, _, err := executeCLI(t, home, "install")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "Install local tool integrations")
+	assert.Contains(t, stdout, "Usage:")
+	assert.Contains(t, stdout, "opencode")
+}
+
+func TestHandleCommandWithoutTargetPrintsHelp(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	stdout, _, err := executeCLI(t, home, "handle")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "Handle local tool integration callbacks")
+	assert.Contains(t, stdout, "Usage:")
+	assert.Contains(t, stdout, "opencode")
 }
 
 func TestRootCommandIncludesSyncCommands(t *testing.T) {
@@ -170,7 +197,7 @@ func TestOpencodeHandleReturnsRetryDecisionJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	stdin := `{"provider":"openai","status":401,"message":"token expired","account_id":"acc-1"}`
-	stdout, _, err := executeCLIWithStdin(t, home, stdin, "opencode", "handle", "--json")
+	stdout, _, err := executeCLIWithStdin(t, home, stdin, "handle", "opencode", "--json")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"action":"refresh_current"`)
 	assert.Contains(t, stdout, `"retry_safe":true`)
@@ -205,7 +232,7 @@ func TestOpencodeHandleReturnsFallbackJSONWhenRefreshCurrentFails(t *testing.T) 
 	require.NoError(t, err)
 
 	stdin := `{"provider":"openai","status":401,"message":"token expired","account_id":"acc-1"}`
-	stdout, _, err := executeCLIWithStdin(t, home, stdin, "opencode", "handle", "--json")
+	stdout, _, err := executeCLIWithStdin(t, home, stdin, "handle", "opencode", "--json")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"action":"fallback"`)
 	assert.Contains(t, stdout, `"retry_safe":false`)
@@ -217,7 +244,7 @@ func TestOpencodeHandleReturnsFallbackJSONOnBadStdin(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeAccountsFixture(home))
 
-	stdout, _, err := executeCLIWithStdin(t, home, `{`, "opencode", "handle", "--json")
+	stdout, _, err := executeCLIWithStdin(t, home, `{`, "handle", "opencode", "--json")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"action":"fallback"`)
 	assert.Contains(t, stdout, `"retry_safe":false`)
@@ -229,7 +256,7 @@ func TestOpencodeHandleReturnsFallbackJSONOnLookupFailure(t *testing.T) {
 	require.NoError(t, writeAccountsFixture(home))
 
 	stdin := `{"provider":"openai","status":401,"message":"token expired","account_id":"missing"}`
-	stdout, _, err := executeCLIWithStdin(t, home, stdin, "opencode", "handle", "--json")
+	stdout, _, err := executeCLIWithStdin(t, home, stdin, "handle", "opencode", "--json")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"action":"fallback"`)
 	assert.Contains(t, stdout, `"retry_safe":false`)
@@ -241,7 +268,7 @@ func TestOpencodeHandleReturnsFallbackJSONWhenAccountIDMissing(t *testing.T) {
 	require.NoError(t, writeAccountsFixture(home))
 
 	stdin := `{"provider":"openai","status":401,"message":"token expired","account_id":""}`
-	stdout, _, err := executeCLIWithStdin(t, home, stdin, "opencode", "handle", "--json")
+	stdout, _, err := executeCLIWithStdin(t, home, stdin, "handle", "opencode", "--json")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"action":"fallback"`)
 	assert.Contains(t, stdout, `"retry_safe":false`)
@@ -252,7 +279,7 @@ func TestOpencodeHandleReturnsFallbackJSONWhenAccountIDMissing(t *testing.T) {
 func TestOpencodeInstallWritesPluginAndConfig(t *testing.T) {
 	home := t.TempDir()
 
-	stdout, _, err := executeCLI(t, home, "opencode", "install")
+	stdout, _, err := executeCLI(t, home, "install", "opencode")
 	require.NoError(t, err)
 
 	pluginPath := filepath.Join(home, ".config", "opencode", "plugins", "oa-plugin.js")
@@ -281,7 +308,7 @@ func TestOpencodeInstallMergesPluginDependencyIntoExistingConfigPackage(t *testi
 	require.NoError(t, os.MkdirAll(configDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "package.json"), []byte(`{"name":"local-opencode-config","dependencies":{"left-pad":"1.3.0"}}`), 0o644))
 
-	_, _, err := executeCLI(t, home, "opencode", "install")
+	_, _, err := executeCLI(t, home, "install", "opencode")
 	require.NoError(t, err)
 
 	configData, readErr := os.ReadFile(filepath.Join(configDir, "package.json"))
@@ -295,7 +322,7 @@ func TestOpencodeDoctorReportsHealthyInstall(t *testing.T) {
 	binDir := writeFakeOABinary(t)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	_, _, err := executeCLI(t, home, "opencode", "install")
+	_, _, err := executeCLI(t, home, "install", "opencode")
 	require.NoError(t, err)
 
 	stdout, _, err := executeCLI(t, home, "opencode", "doctor")

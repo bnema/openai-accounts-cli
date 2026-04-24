@@ -9,9 +9,7 @@ func newOpencodeCmd(app *app) *cobra.Command {
 	}
 
 	cmd.AddCommand(
-		newOpencodeInstallCmd(app),
 		newOpencodeInstallSystemdCmd(app),
-		newOpencodeHandleCmd(app),
 		newOpencodeDoctorCmd(app),
 		newOpencodeSyncCmd(app),
 	)

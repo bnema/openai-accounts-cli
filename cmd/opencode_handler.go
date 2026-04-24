@@ -25,11 +25,24 @@ type opencodeDecisionResponse struct {
 	Auth      *opencodeAuthEntry `json:"auth,omitempty"`
 }
 
+func newHandleCmd(app *app) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "handle",
+		Short: "Handle local tool integration callbacks",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+
+	cmd.AddCommand(newOpencodeHandleCmd(app))
+	return cmd
+}
+
 func newOpencodeHandleCmd(app *app) *cobra.Command {
 	var jsonOutput bool
 
 	cmd := &cobra.Command{
-		Use:   "handle",
+		Use:   "opencode",
 		Short: "Handle OpenCode requests",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !jsonOutput {

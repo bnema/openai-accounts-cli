@@ -39,6 +39,8 @@ func newRootCmdWithApp(app *app) *cobra.Command {
 		newAuthCmd(app),
 		newUsageCmd(app),
 		newSyncCmd(app),
+		newInstallCmd(app),
+		newHandleCmd(app),
 		newOpencodeCmd(app),
 	)
 

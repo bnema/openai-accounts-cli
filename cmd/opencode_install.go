@@ -9,9 +9,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func newInstallCmd(app *app) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install local tool integrations",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+
+	cmd.AddCommand(newOpencodeInstallCmd(app))
+	return cmd
+}
+
 func newOpencodeInstallCmd(_ *app) *cobra.Command {
 	return &cobra.Command{
-		Use:   "install",
+		Use:   "opencode",
 		Short: "Install OpenCode integration",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			configDir, err := opencodeConfigDir()
