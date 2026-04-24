@@ -10,7 +10,7 @@
 - Fetches daily and weekly usage limits from OpenAI
 - Recommends which account to use based on weekly pressure
 - Shows subscription renewal countdowns
-- Syncs ChatGPT OAuth credentials into OpenCode
+- Syncs ChatGPT OAuth credentials into OpenCode, Codex, and Pi
 
 ## Install
 
@@ -39,7 +39,11 @@ oa
 |  |- handle --json                Handle OpenCode requests via JSON stdin/stdout
 |  |- install                      Install OpenCode integration
 |  |- install-systemd              Install a systemd user timer for OpenCode sync
-|  `- sync                         Sync OpenCode auth
+|  `- sync                         Sync OpenCode auth (deprecated: use `sync opencode`)
+|- sync [--all] [--evenly]         Sync ChatGPT OAuth auth into local tools
+|  |- codex                        Sync Codex auth
+|  |- opencode                     Sync OpenCode auth
+|  `- pi                           Sync Pi auth (alias: `pi-mono`)
 |- usage [--account <id>] [--json] Fetch and display account usage limits (alias: `status`)
 `- version                         Print version information
 ```

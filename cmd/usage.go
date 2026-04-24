@@ -199,31 +199,13 @@ func fetchAccountsConcurrently(ctx context.Context, app *app, accounts []domain.
 }
 
 func fetchAndPersistLimits(ctx context.Context, app *app, account domain.Account) error {
-	// Check if we have fresh data (within 5 minutes)
-	// Reload account from repository to get the latest persisted state
-	const cacheDuration = 5 * time.Minute
-	currentTime := app.now()
-
 	status, err := app.service.GetStatus(ctx, account.ID)
 	if err != nil {
-		// If we can't load status, proceed with fetch
 		return fetchAndPersistLimitsUncached(ctx, app, account)
 	}
 
-	// Check the most recent capture time across all limits
-	var mostRecent time.Time
-	if status.DailyLimit != nil && !status.DailyLimit.CapturedAt.IsZero() {
-		mostRecent = status.DailyLimit.CapturedAt
-	}
-	if status.WeeklyLimit != nil && !status.WeeklyLimit.CapturedAt.IsZero() {
-		if mostRecent.IsZero() || status.WeeklyLimit.CapturedAt.After(mostRecent) {
-			mostRecent = status.WeeklyLimit.CapturedAt
-		}
-	}
-
-	// Skip fetch if we have recent data
-	if !mostRecent.IsZero() && currentTime.Sub(mostRecent) < cacheDuration {
-		return nil // Skip fetch, data is fresh
+	if application.StatusUsageCacheFresh(status, app.now()) {
+		return nil
 	}
 
 	return fetchAndPersistLimitsUncached(ctx, app, account)

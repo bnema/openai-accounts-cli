@@ -43,7 +43,7 @@ func newOpencodeInstallSystemdCmd(_ *app) *cobra.Command {
 }
 
 func renderOpencodeSystemdService(execPath string) string {
-	return fmt.Sprintf("[Unit]\nDescription=Sync OpenCode auth with the best available oa account\n\n[Service]\nType=oneshot\nExecStart=%s opencode sync\n", systemdQuote(execPath))
+	return fmt.Sprintf("[Unit]\nDescription=Sync OpenCode auth with the best available oa account\n\n[Service]\nType=oneshot\nExecStart=%s sync opencode\n", systemdQuote(execPath))
 }
 
 func systemdQuote(value string) string {

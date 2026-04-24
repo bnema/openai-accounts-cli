@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/bnema/openai-accounts-cli/internal/application"
 	"github.com/bnema/openai-accounts-cli/internal/domain"
@@ -148,7 +147,7 @@ func loadOpencodeHandlerAuth(cmd *cobra.Command, app *app, accountID domain.Acco
 		Type:      "oauth",
 		Refresh:   tokens.RefreshToken,
 		Access:    tokens.AccessToken,
-		Expires:   opencodeAuthExpiryMillis(app, tokens),
+		Expires:   oauthExpiryMillis(app, tokens),
 		AccountID: accountIDFromToken(tokens.IDToken),
 	}
 
@@ -166,16 +165,6 @@ func opencodeFallbackResponse(err error) opencodeDecisionResponse {
 		RetrySafe: false,
 		Message:   message,
 	}
-}
-
-func opencodeAuthExpiryMillis(app *app, tokens oauthTokens) int64 {
-	if tokens.ExpiresAt > 0 {
-		return tokens.ExpiresAt * 1000
-	}
-	if tokens.ExpiresIn > 0 {
-		return app.now().Add(time.Duration(tokens.ExpiresIn) * time.Second).UnixMilli()
-	}
-	return 0
 }
 
 func opencodeDecisionMessage(decision application.OpencodeRecoveryDecision) string {

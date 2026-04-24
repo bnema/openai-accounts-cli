@@ -125,6 +125,24 @@ func TestRootCommandIncludesOpencodeCommands(t *testing.T) {
 	assert.Equal(t, "install", cmd.Name())
 }
 
+func TestRootCommandIncludesSyncCommands(t *testing.T) {
+	root := newRootCmd()
+	cmd, _, err := root.Find([]string{"sync", "opencode"})
+	require.NoError(t, err)
+	assert.Equal(t, "opencode", cmd.Name())
+}
+
+func TestSyncCommandWithoutTargetPrintsHelp(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	stdout, _, err := executeCLI(t, home, "sync")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "Sync ChatGPT OAuth auth into local tools")
+	assert.Contains(t, stdout, "Usage:")
+	assert.Contains(t, stdout, "opencode")
+}
+
 func TestOpencodeHandleReturnsRetryDecisionJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -246,8 +264,8 @@ func TestOpencodeInstallWritesPluginAndConfig(t *testing.T) {
 	assert.Contains(t, plugin, `export const OAPlugin = async ({ client, $ }) => {`)
 	assert.Contains(t, plugin, `tool: {`)
 	assert.Contains(t, plugin, `"oa-sync": tool({`)
-	assert.Contains(t, plugin, `description: "Sync OpenCode auth with oa opencode sync"`)
-	assert.Contains(t, plugin, "oa opencode sync")
+	assert.Contains(t, plugin, `description: "Sync OpenCode auth with oa sync opencode"`)
+	assert.Contains(t, plugin, "oa sync opencode")
 	assert.Contains(t, plugin, `await client.tui.showToast({ body: { message, variant: "info" } })`)
 	assert.Contains(t, plugin, `await client.tui.showToast({ body: { message, variant: "error" } })`)
 
@@ -330,7 +348,7 @@ func TestOpencodeSyncSelectsBestEligibleAccountAndWritesOpenAIAuthEntry(t *testi
 	)
 	require.NoError(t, err)
 
-	stdout, _, err := executeCLI(t, home, "opencode", "sync")
+	stdout, _, err := executeCLI(t, home, "sync", "opencode")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "acc-3")
 
@@ -370,7 +388,7 @@ func TestOpencodeSyncPreservesOtherProviderEntries(t *testing.T) {
 	  }
 	}`), 0o600))
 
-	_, _, err = executeCLI(t, home, "opencode", "sync")
+	_, _, err = executeCLI(t, home, "sync", "opencode")
 	require.NoError(t, err)
 
 	data, readErr := os.ReadFile(authPath)
@@ -403,7 +421,7 @@ func TestOpencodeSyncEvenlyRecordsSelectionHistoryOnSuccess(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, _, err = executeCLI(t, home, "opencode", "sync", "--evenly")
+	_, _, err = executeCLI(t, home, "sync", "opencode", "--evenly")
 	require.NoError(t, err)
 
 	historyPath := filepath.Join(home, ".codex", "selection-history.json")
@@ -436,7 +454,7 @@ func TestOpencodeSyncEvenlyReturnsErrorWhenRecordingSelectionHistoryFails(t *tes
 	historyPath := filepath.Join(home, ".codex", "selection-history.json")
 	require.NoError(t, os.WriteFile(historyPath, []byte(`{`), 0o644))
 
-	_, _, err = executeCLI(t, home, "opencode", "sync", "--evenly")
+	_, _, err = executeCLI(t, home, "sync", "opencode", "--evenly")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "record selection history")
 
@@ -461,19 +479,19 @@ func TestOpencodeInstallSystemdWritesUserUnits(t *testing.T) {
 	timerData, readTimerErr := os.ReadFile(timerPath)
 	require.NoError(t, readTimerErr)
 	assert.Contains(t, string(serviceData), "ExecStart=")
-	assert.Contains(t, string(serviceData), " opencode sync")
+	assert.Contains(t, string(serviceData), " sync opencode")
 	assert.Contains(t, string(timerData), "OnUnitActiveSec=10m")
 	assert.Contains(t, string(timerData), "WantedBy=timers.target")
 }
 
 func TestRenderOpencodeSystemdServiceQuotesExecutablePath(t *testing.T) {
 	service := renderOpencodeSystemdService("/tmp/My App/oa")
-	assert.Contains(t, service, `ExecStart="/tmp/My App/oa" opencode sync`)
+	assert.Contains(t, service, `ExecStart="/tmp/My App/oa" sync opencode`)
 }
 
 func TestRenderOpencodeSystemdServiceEscapesBackslashesInExecutablePath(t *testing.T) {
 	service := renderOpencodeSystemdService(`C:\\Program Files\\oa\\oa.exe`)
-	assert.Contains(t, service, `ExecStart="C:\\\\Program Files\\\\oa\\\\oa.exe" opencode sync`)
+	assert.Contains(t, service, `ExecStart="C:\\\\Program Files\\\\oa\\\\oa.exe" sync opencode`)
 }
 
 func TestOpencodeSyncFallsBackWhenTopRankedAccountTokensAreInvalid(t *testing.T) {
@@ -497,7 +515,7 @@ func TestOpencodeSyncFallsBackWhenTopRankedAccountTokensAreInvalid(t *testing.T)
 	)
 	require.NoError(t, err)
 
-	stdout, _, err := executeCLI(t, home, "opencode", "sync")
+	stdout, _, err := executeCLI(t, home, "sync", "opencode")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "acc-3")
 
@@ -528,7 +546,7 @@ func TestOpencodeSyncFallsBackWhenTopRankedAccountTokensAreIncomplete(t *testing
 	)
 	require.NoError(t, err)
 
-	stdout, _, err := executeCLI(t, home, "opencode", "sync")
+	stdout, _, err := executeCLI(t, home, "sync", "opencode")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "acc-3")
 
@@ -563,7 +581,7 @@ func TestOpencodeSyncDoesNotFallThroughOnAuthFileWriteFailures(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, _, err = executeCLI(t, home, "opencode", "sync")
+	_, _, err = executeCLI(t, home, "sync", "opencode")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "opencode auth file")
 	assert.NotContains(t, err.Error(), "decode tokens")
@@ -586,7 +604,7 @@ func TestOpencodeSyncFailsOnMalformedExistingAuthFile(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(authPath), 0o755))
 	require.NoError(t, os.WriteFile(authPath, []byte(`{"openai":`), 0o600))
 
-	_, _, err = executeCLI(t, home, "opencode", "sync")
+	_, _, err = executeCLI(t, home, "sync", "opencode")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode opencode auth file")
 
@@ -612,7 +630,7 @@ func TestOpencodeSyncPreservesExistingAuthFileMode(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(authPath), 0o755))
 	require.NoError(t, os.WriteFile(authPath, []byte(`{"anthropic":{"type":"api_key","key":"anthropic-key"}}`), 0o640))
 
-	_, _, err = executeCLI(t, home, "opencode", "sync")
+	_, _, err = executeCLI(t, home, "sync", "opencode")
 	require.NoError(t, err)
 
 	info, statErr := os.Stat(authPath)
@@ -633,12 +651,206 @@ func TestOpencodeSyncRejectsTokensWithoutExpiry(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, _, err = executeCLI(t, home, "opencode", "sync")
+	_, _, err = executeCLI(t, home, "sync", "opencode")
 	require.Error(t, err)
+	assert.ErrorIs(t, err, application.ErrNoEligibleSyncAccount)
 	assert.Contains(t, err.Error(), "missing token expiry")
 
 	_, statErr := os.Stat(filepath.Join(home, ".local", "share", "opencode", "auth.json"))
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+func TestCodexSyncWritesChatGPTAuthFile(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSingleSyncAccountFixture(home, "acc-2", "Only Choice"))
+
+	fixedNow := time.Date(2026, 4, 23, 12, 34, 56, 0, time.UTC)
+	idToken := fakeJWT(`{"email":"coder@example.com","https://api.openai.com/auth":{"chatgpt_account_id":"chatgpt-account-2","chatgpt_plan_type":"plus"}}`)
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, idToken),
+	)
+	require.NoError(t, err)
+
+	authPath := filepath.Join(home, ".codex", "auth.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(authPath), 0o755))
+	require.NoError(t, os.WriteFile(authPath, []byte(`{"workspace_id":"workspace-1","agent_identity":{"registered_at":"2026-04-01T00:00:00Z"},"OPENAI_API_KEY":"stale-key","openai_api_key":"legacy-lowercase-key"}`), 0o640))
+
+	stdout, _, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time { return fixedNow }
+	}, "sync", "codex")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "acc-2")
+
+	data, readErr := os.ReadFile(authPath)
+	require.NoError(t, readErr)
+	assert.JSONEq(t, fmt.Sprintf(`{"workspace_id":"workspace-1","agent_identity":{"registered_at":"2026-04-01T00:00:00Z"},"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":%q,"access_token":"access-token-222","refresh_token":"refresh-token-222","account_id":"chatgpt-account-2"},"last_refresh":"%s"}`,
+		idToken,
+		fixedNow.Format(time.RFC3339),
+	), string(data))
+
+	info, statErr := os.Stat(authPath)
+	require.NoError(t, statErr)
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+}
+
+func TestPiSyncWritesOpenAICodexProviderEntryAndPreservesOtherProviders(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSingleSyncAccountFixture(home, "acc-2", "Only Choice"))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+
+	authPath := filepath.Join(home, ".pi", "agent", "auth.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(authPath), 0o755))
+	require.NoError(t, os.WriteFile(authPath, []byte(`{"anthropic":{"type":"api_key","key":"anthropic-key"}}`), 0o640))
+
+	stdout, _, err := executeCLI(t, home, "sync", "pi")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "acc-2")
+
+	data, readErr := os.ReadFile(authPath)
+	require.NoError(t, readErr)
+	assert.JSONEq(t, `{"anthropic":{"type":"api_key","key":"anthropic-key"},"openai-codex":{"type":"oauth","access":"access-token-222","refresh":"refresh-token-222","expires":1890000000000,"accountId":"chatgpt-account-2"}}`, string(data))
+
+	info, statErr := os.Stat(authPath)
+	require.NoError(t, statErr)
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+}
+
+func TestSyncAllWritesAllTargetsAndRecordsSelectionOnceWhenEvenly(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	stdout, _, err := executeCLI(t, home, "sync", "--all", "--evenly")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "synced OpenCode auth for Best (acc-3)")
+	assert.Contains(t, stdout, "synced Codex auth for Best (acc-3)")
+	assert.Contains(t, stdout, "synced Pi auth for Best (acc-3)")
+
+	opencodeAuth, readOpencodeErr := os.ReadFile(filepath.Join(home, ".local", "share", "opencode", "auth.json"))
+	require.NoError(t, readOpencodeErr)
+	assert.Contains(t, string(opencodeAuth), `"accountId": "chatgpt-account-3"`)
+
+	codexAuth, readCodexErr := os.ReadFile(filepath.Join(home, ".codex", "auth.json"))
+	require.NoError(t, readCodexErr)
+	assert.Contains(t, string(codexAuth), `"account_id": "chatgpt-account-3"`)
+
+	piAuth, readPiErr := os.ReadFile(filepath.Join(home, ".pi", "agent", "auth.json"))
+	require.NoError(t, readPiErr)
+	assert.Contains(t, string(piAuth), `"accountId": "chatgpt-account-3"`)
+
+	historyData, readHistoryErr := os.ReadFile(filepath.Join(home, ".codex", "selection-history.json"))
+	require.NoError(t, readHistoryErr)
+	assert.Equal(t, 1, bytes.Count(historyData, []byte(`"account_id":"acc-3"`)))
+}
+
+func TestSyncAllReturnsPartialFailureWhenLaterTargetWriteFails(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSingleSyncAccountFixture(home, "acc-2", "Only Choice"))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+
+	codexAuthPath := filepath.Join(home, ".codex", "auth.json")
+	require.NoError(t, os.WriteFile(codexAuthPath, []byte(`{"auth_mode":`), 0o600))
+
+	_, _, err = executeCLI(t, home, "sync", "--all")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "partial sync failure")
+	assert.Contains(t, err.Error(), "synced OpenCode")
+	assert.Contains(t, err.Error(), "Codex failed")
+
+	_, statHistoryErr := os.Stat(filepath.Join(home, ".codex", "selection-history.json"))
+	assert.ErrorIs(t, statHistoryErr, os.ErrNotExist)
+}
+
+func TestSyncOpencodeRefreshesExpiredUsageCacheBeforeRanking(t *testing.T) {
+	fixedNow := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	usageCalls := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/wham/usage":
+			usageCalls++
+			switch r.Header.Get("Authorization") {
+			case "Bearer access-token-222":
+				_, _ = fmt.Fprint(w, `{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":95,"limit_window_seconds":18000,"reset_at":1775394000},"secondary_window":{"used_percent":95,"limit_window_seconds":604800,"reset_at":1775563200}}}`)
+			case "Bearer access-token-333":
+				_, _ = fmt.Fprint(w, `{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":10,"limit_window_seconds":18000,"reset_at":1775394000},"secondary_window":{"used_percent":20,"limit_window_seconds":604800,"reset_at":1775563200}}}`)
+			default:
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = fmt.Fprint(w, `{"error":"unexpected token"}`)
+			}
+		case "/subscriptions":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeExpiredSyncCacheFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	stdout, _, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time { return fixedNow }
+	}, "sync", "opencode")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "Fresh After Refresh (acc-3)")
+	assert.Equal(t, 2, usageCalls)
 }
 
 func TestRotateOpencodeCommandIsRemoved(t *testing.T) {
@@ -1184,31 +1396,6 @@ func writeFakeOABinary(t *testing.T) string {
 	return binDir
 }
 
-func writeAccountsFixtureWithChatGPTAuth(home string) error {
-	configDir := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return err
-	}
-
-	accounts := `version = 1
-
-[[accounts]]
-id = "acc-1"
-name = "Primary"
-
-[accounts.metadata]
-provider = "openai"
-model = "gpt-5"
-secret_ref = "openai://acc-1/oauth_tokens"
-
-[accounts.auth]
-method = "chatgpt"
-secret_ref = "openai://acc-1/oauth_tokens"
-`
-
-	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)
-}
-
 func writeUsageSubsetRecommendationFixture(home string) error {
 	configDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
@@ -1286,8 +1473,8 @@ secret_ref = ""
 
 [accounts.limits.daily]
 percent = 100
-resets_at = "2026-04-05T13:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-05T13:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [[accounts]]
 id = "acc-2"
@@ -1303,22 +1490,22 @@ secret_ref = "openai://acc-2/oauth_tokens"
 
 [accounts.limits.daily]
 percent = 40
-resets_at = "2026-04-05T13:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-05T13:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [accounts.limits.weekly]
 percent = 35
-resets_at = "2026-04-07T12:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-07T12:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [accounts.subscription]
-active_start = "2026-04-01T00:00:00Z"
-active_until = "2026-05-01T00:00:00Z"
+active_start = "2099-04-01T00:00:00Z"
+active_until = "2099-05-01T00:00:00Z"
 will_renew = true
 billing_period = "monthly"
 billing_currency = "USD"
 is_delinquent = false
-captured_at = "2026-04-05T12:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [[accounts]]
 id = "acc-3"
@@ -1334,13 +1521,56 @@ secret_ref = "openai://acc-3/oauth_tokens"
 
 [accounts.limits.daily]
 percent = 15
-resets_at = "2026-04-05T13:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-05T13:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [accounts.limits.weekly]
 percent = 25
+resets_at = "2099-04-07T12:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
+
+[accounts.subscription]
+active_start = "2099-04-01T00:00:00Z"
+active_until = "2099-05-01T00:00:00Z"
+will_renew = true
+billing_period = "monthly"
+billing_currency = "USD"
+is_delinquent = false
+captured_at = "2099-04-05T12:00:00Z"
+`
+
+	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)
+}
+
+func writeOpencodeExpiredSyncCacheFixture(home string) error {
+	configDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return err
+	}
+
+	accounts := `version = 1
+
+[[accounts]]
+id = "acc-2"
+name = "Stale Best"
+
+[accounts.metadata]
+provider = "openai"
+model = "gpt-5"
+
+[accounts.auth]
+method = "chatgpt"
+secret_ref = "openai://acc-2/oauth_tokens"
+
+[accounts.limits.daily]
+percent = 5
+resets_at = "2026-04-05T13:00:00Z"
+captured_at = "2026-04-05T11:54:00Z"
+
+[accounts.limits.weekly]
+percent = 10
 resets_at = "2026-04-07T12:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+captured_at = "2026-04-05T11:54:00Z"
 
 [accounts.subscription]
 active_start = "2026-04-01T00:00:00Z"
@@ -1349,7 +1579,38 @@ will_renew = true
 billing_period = "monthly"
 billing_currency = "USD"
 is_delinquent = false
-captured_at = "2026-04-05T12:00:00Z"
+captured_at = "2026-04-05T11:54:00Z"
+
+[[accounts]]
+id = "acc-3"
+name = "Fresh After Refresh"
+
+[accounts.metadata]
+provider = "openai"
+model = "gpt-5"
+
+[accounts.auth]
+method = "chatgpt"
+secret_ref = "openai://acc-3/oauth_tokens"
+
+[accounts.limits.daily]
+percent = 60
+resets_at = "2026-04-05T13:00:00Z"
+captured_at = "2026-04-05T11:54:00Z"
+
+[accounts.limits.weekly]
+percent = 60
+resets_at = "2026-04-07T12:00:00Z"
+captured_at = "2026-04-05T11:54:00Z"
+
+[accounts.subscription]
+active_start = "2026-04-01T00:00:00Z"
+active_until = "2026-05-01T00:00:00Z"
+will_renew = true
+billing_period = "monthly"
+billing_currency = "USD"
+is_delinquent = false
+captured_at = "2026-04-05T11:54:00Z"
 `
 
 	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)
@@ -1377,22 +1638,22 @@ secret_ref = "openai://acc-2/oauth_tokens"
 
 [accounts.limits.daily]
 percent = 5
-resets_at = "2026-04-05T13:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-05T13:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [accounts.limits.weekly]
 percent = 10
-resets_at = "2026-04-07T12:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-07T12:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [accounts.subscription]
-active_start = "2026-04-01T00:00:00Z"
-active_until = "2026-05-01T00:00:00Z"
+active_start = "2099-04-01T00:00:00Z"
+active_until = "2099-05-01T00:00:00Z"
 will_renew = true
 billing_period = "monthly"
 billing_currency = "USD"
 is_delinquent = false
-captured_at = "2026-04-05T12:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [[accounts]]
 id = "acc-3"
@@ -1408,22 +1669,22 @@ secret_ref = "openai://acc-3/oauth_tokens"
 
 [accounts.limits.daily]
 percent = 20
-resets_at = "2026-04-05T13:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-05T13:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [accounts.limits.weekly]
 percent = 30
-resets_at = "2026-04-07T12:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-07T12:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [accounts.subscription]
-active_start = "2026-04-01T00:00:00Z"
-active_until = "2026-05-01T00:00:00Z"
+active_start = "2099-04-01T00:00:00Z"
+active_until = "2099-05-01T00:00:00Z"
 will_renew = true
 billing_period = "monthly"
 billing_currency = "USD"
 is_delinquent = false
-captured_at = "2026-04-05T12:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 `
 
 	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)
@@ -1451,22 +1712,22 @@ secret_ref = %q
 
 [accounts.limits.daily]
 percent = 5
-resets_at = "2026-04-05T13:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-05T13:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [accounts.limits.weekly]
 percent = 10
-resets_at = "2026-04-07T12:00:00Z"
-captured_at = "2026-04-05T12:00:00Z"
+resets_at = "2099-04-07T12:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 
 [accounts.subscription]
-active_start = "2026-04-01T00:00:00Z"
-active_until = "2026-05-01T00:00:00Z"
+active_start = "2099-04-01T00:00:00Z"
+active_until = "2099-05-01T00:00:00Z"
 will_renew = true
 billing_period = "monthly"
 billing_currency = "USD"
 is_delinquent = false
-captured_at = "2026-04-05T12:00:00Z"
+captured_at = "2099-04-05T12:00:00Z"
 `, accountID, accountName, fmt.Sprintf("openai://%s/oauth_tokens", accountID))
 
 	return os.WriteFile(filepath.Join(configDir, "accounts.toml"), []byte(accounts), 0o644)

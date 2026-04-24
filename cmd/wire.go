@@ -36,6 +36,14 @@ type browserLoginConfig struct {
 	Timeout    time.Duration
 }
 
+type appClock struct {
+	app *app
+}
+
+func (c appClock) Now() time.Time {
+	return c.app.now()
+}
+
 func wireApp() (*app, error) {
 	repo, err := tomlrepo.NewRepository(viper.New())
 	if err != nil {
@@ -54,8 +62,7 @@ func wireApp() (*app, error) {
 
 	selectionHistory := localrepo.NewSelectionHistory(filepath.Join(homeDir, ".codex", "selection-history.json"))
 
-	return &app{
-		service:        application.NewService(repo, secretStore, ports.SystemClock{}, selectionHistory),
+	app := &app{
 		secretStore:    secretStore,
 		statusRenderer: statusadapter.Render,
 		browserLogin: browserLoginConfig{
@@ -67,7 +74,10 @@ func wireApp() (*app, error) {
 		usageBaseURL: envOrDefault("OA_USAGE_BASE_URL", "https://chatgpt.com/backend-api"),
 		httpClient:   http.DefaultClient,
 		now:          time.Now,
-	}, nil
+	}
+	app.service = application.NewService(repo, secretStore, appClock{app: app}, selectionHistory)
+
+	return app, nil
 }
 
 func envOrDefault(key, fallback string) string {

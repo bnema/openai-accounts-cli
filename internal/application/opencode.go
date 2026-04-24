@@ -25,9 +25,11 @@ type OpencodeRecoveryDecision struct {
 	Retry     bool
 }
 
-var ErrNoEligibleOpencodeAccount = errors.New("no eligible opencode account")
+var ErrNoEligibleSyncAccount = errors.New("no eligible sync account")
 
-func (s *Service) RankOpencodeSyncAccounts(ctx context.Context) ([]Status, error) {
+var ErrNoEligibleOpencodeAccount = ErrNoEligibleSyncAccount
+
+func (s *Service) RankSyncAccounts(ctx context.Context) ([]Status, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -55,13 +57,17 @@ func (s *Service) RankOpencodeSyncAccounts(ctx context.Context) ([]Status, error
 	return ranked, nil
 }
 
+func (s *Service) RankOpencodeSyncAccounts(ctx context.Context) ([]Status, error) {
+	return s.RankSyncAccounts(ctx)
+}
+
 func (s *Service) SelectOpencodeSyncAccount(ctx context.Context) (Status, error) {
-	ranked, err := s.RankOpencodeSyncAccounts(ctx)
+	ranked, err := s.RankSyncAccounts(ctx)
 	if err != nil {
 		return Status{}, err
 	}
 	if len(ranked) == 0 {
-		return Status{}, ErrNoEligibleOpencodeAccount
+		return Status{}, ErrNoEligibleSyncAccount
 	}
 
 	return ranked[0], nil
