@@ -101,7 +101,10 @@ oa install pi
 
 The installed extension watches `~/.pi/agent/auth.json`, reloads Pi auth in memory before the next provider call, and tries `oa sync pi --evenly` after OpenAI Codex HTTP 401/429 responses.
 
-Add `--evenly` to rotate among top candidates using recent selection history:
+Selection prefers the account whose remaining weekly capacity is most at risk of being wasted:
+first before the subscription period ends, then before the current weekly window resets, then before the 5-hour window resets.
+
+Add `--evenly` to rotate among comparable top candidates using recent selection history. It only rebalances accounts with similar pressure, so a low-risk account will not jump ahead of an account that needs usage now:
 
 ```bash
 oa sync --all --evenly

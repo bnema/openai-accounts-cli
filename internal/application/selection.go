@@ -8,13 +8,8 @@ import (
 	"github.com/bnema/openai-accounts-cli/internal/domain"
 )
 
-var defaultSelectionPolicy = domain.SelectionPolicy{
-	UrgentRenewalWindow:          7 * 24 * time.Hour,
-	UrgentRenewalWeeklyThreshold: 10,
-}
-
 const selectionFairnessWindow = 30 * 24 * time.Hour
-const selectionFairnessRemainingTolerance = 5.0
+const selectionFairnessPressureTolerance = 0.05
 
 type RecommendedAccount struct {
 	Status Status
@@ -90,7 +85,7 @@ func (s *Service) RebalanceStatusesEvenly(ctx context.Context, statuses []Status
 }
 
 func RecommendAccountsFromStatuses(statuses []Status, now time.Time) RecommendationResult {
-	ranking := domain.RankSelectionCandidates(selectionCandidatesFromStatuses(statuses, now), defaultSelectionPolicy, now)
+	ranking := domain.RankSelectionCandidates(selectionCandidatesFromStatuses(statuses, now), now)
 
 	statusesByID := make(map[domain.AccountID]Status, len(statuses))
 	for _, status := range statuses {
@@ -188,7 +183,7 @@ func recommendationTopBand(recommendation RecommendationResult, now time.Time) [
 	best := recommendation.Ordered[0]
 	topBand := []RecommendedAccount{best}
 	for _, candidate := range recommendation.Ordered[1:] {
-		if !recommendedAccountInTopBand(best, candidate, recommendation.Pool, now) {
+		if !recommendedAccountInTopBand(best, candidate, now) {
 			break
 		}
 		topBand = append(topBand, candidate)
@@ -197,36 +192,30 @@ func recommendationTopBand(recommendation RecommendationResult, now time.Time) [
 	return topBand
 }
 
-func recommendedAccountInTopBand(best, candidate RecommendedAccount, pool domain.SelectionPool, now time.Time) bool {
+func recommendedAccountInTopBand(best, candidate RecommendedAccount, now time.Time) bool {
 	bestCandidate := domain.SelectionCandidateFromAccount(best.Status.Account, now)
 	candidateSelection := domain.SelectionCandidateFromAccount(candidate.Status.Account, now)
 
-	switch pool {
-	case domain.SelectionPoolUrgentRenewal:
-		return sameSelectionRenewal(bestCandidate.RenewalAt, candidateSelection.RenewalAt) &&
-			bestCandidate.WeeklyRemaining == candidateSelection.WeeklyRemaining &&
-			selectionRemainingWithinTolerance(bestCandidate.DailyRemaining, candidateSelection.DailyRemaining)
-	default:
-		return bestCandidate.WeeklyRemaining == candidateSelection.WeeklyRemaining &&
-			selectionRemainingWithinTolerance(bestCandidate.DailyRemaining, candidateSelection.DailyRemaining)
-	}
+	return selectionPressureWithinTolerance(domain.SelectionSubscriptionWeeklyPressure(bestCandidate, now), domain.SelectionSubscriptionWeeklyPressure(candidateSelection, now)) &&
+		selectionPressureWithinTolerance(domain.SelectionWeeklyResetPressure(bestCandidate, now), domain.SelectionWeeklyResetPressure(candidateSelection, now)) &&
+		selectionPressureWithinTolerance(domain.SelectionDailyResetPressure(bestCandidate, now), domain.SelectionDailyResetPressure(candidateSelection, now))
 }
 
-func sameSelectionRenewal(left, right *time.Time) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-
-	return left.Equal(*right)
-}
-
-func selectionRemainingWithinTolerance(left, right float64) bool {
+func selectionPressureWithinTolerance(left, right float64) bool {
 	diff := left - right
 	if diff < 0 {
 		diff = -diff
 	}
 
-	return diff <= selectionFairnessRemainingTolerance
+	largest := left
+	if right > largest {
+		largest = right
+	}
+	if largest <= 0 {
+		return true
+	}
+
+	return diff/largest <= selectionFairnessPressureTolerance
 }
 
 func leastUsedRecommendedAccountID(candidates []RecommendedAccount, recent []domain.AccountID) domain.AccountID {

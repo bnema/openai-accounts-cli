@@ -27,10 +27,11 @@ func TestServiceRebalanceStatusesEvenlyReordersAwayFromDefaultLeaderWithinTopBan
 	}, nil).Once()
 
 	service := NewService(repo, store, clock, history)
+	renewal := now.Add(14 * 24 * time.Hour)
 	rebalanced, err := service.RebalanceStatusesEvenly(context.Background(), []Status{
-		selectionStatus("acc-most-used", now.Add(14*24*time.Hour), 10, 20),
-		selectionStatus("acc-least-used", now.Add(10*24*time.Hour), 11, 20),
-		selectionStatus("acc-outside-band", now.Add(10*24*time.Hour), 5, 25),
+		selectionStatus("acc-most-used", renewal, 10, 20),
+		selectionStatus("acc-least-used", renewal, 11, 20),
+		selectionStatus("acc-outside-band", renewal, 50, 20),
 	})
 	require.NoError(t, err)
 
@@ -63,6 +64,38 @@ func TestServiceRebalanceStatusesEvenlyExcludesSameWeeklyButWorseDailyCandidateF
 	})
 }
 
+func TestServiceRebalanceStatusesEvenlyRotatesOnlyWithinComparableRiskBand(t *testing.T) {
+	now := time.Date(2026, time.April, 5, 12, 0, 0, 0, time.UTC)
+
+	repo := mocks.NewMockAccountRepository(t)
+	store := mocks.NewMockSecretStore(t)
+	clock := mocks.NewMockClock(t)
+	history := mocks.NewMockSelectionHistory(t)
+	clock.EXPECT().Now().Return(now).Once()
+	history.EXPECT().RecentSelections(mockAnyContext(), now.Add(-selectionFairnessWindow)).Return([]domain.AccountID{
+		"top-default",
+		"top-default",
+		"top-least-used",
+	}, nil).Once()
+
+	topRenewal := now.Add(10 * 24 * time.Hour)
+	lowRiskRenewal := now.Add(20 * 24 * time.Hour)
+
+	service := NewService(repo, store, clock, history)
+	rebalanced, err := service.RebalanceStatusesEvenly(context.Background(), []Status{
+		selectionStatus("top-default", topRenewal, 10, 20),
+		selectionStatus("top-least-used", topRenewal, 11, 20),
+		selectionStatus("lower-risk-never-used", lowRiskRenewal, 0, 20),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []domain.AccountID{"top-least-used", "top-default", "lower-risk-never-used"}, []domain.AccountID{
+		rebalanced[0].Account.ID,
+		rebalanced[1].Account.ID,
+		rebalanced[2].Account.ID,
+	})
+}
+
 func TestServiceRebalanceStatusesEvenlyFallsBackToDefaultOrderWhenHistoryUnavailable(t *testing.T) {
 	now := time.Date(2026, time.April, 5, 12, 0, 0, 0, time.UTC)
 
@@ -74,19 +107,20 @@ func TestServiceRebalanceStatusesEvenlyFallsBackToDefaultOrderWhenHistoryUnavail
 	history.EXPECT().RecentSelections(mockAnyContext(), now.Add(-selectionFairnessWindow)).Return(nil, errors.New("history unavailable")).Once()
 
 	service := NewService(repo, store, clock, history)
+	renewal := now.Add(14 * 24 * time.Hour)
 	rebalanced, err := service.RebalanceStatusesEvenly(context.Background(), []Status{
-		selectionStatus("acc-best", now.Add(14*24*time.Hour), 10, 20),
-		selectionStatus("acc-next", now.Add(10*24*time.Hour), 5, 20),
+		selectionStatus("acc-best", renewal, 10, 20),
+		selectionStatus("acc-next", renewal, 11, 20),
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, []domain.AccountID{"acc-next", "acc-best"}, []domain.AccountID{
+	assert.Equal(t, []domain.AccountID{"acc-best", "acc-next"}, []domain.AccountID{
 		rebalanced[0].Account.ID,
 		rebalanced[1].Account.ID,
 	})
 }
 
-func TestServiceRecommendAccountsUsesUrgentRenewalPool(t *testing.T) {
+func TestServiceRecommendAccountsPrioritizesSubscriptionDeadlinePressure(t *testing.T) {
 	now := time.Date(2026, time.April, 5, 12, 0, 0, 0, time.UTC)
 	soonest := now.Add(24 * time.Hour)
 	later := now.Add(72 * time.Hour)
@@ -110,12 +144,14 @@ func TestServiceRecommendAccountsUsesUrgentRenewalPool(t *testing.T) {
 	result = selection
 	assert.Equal(t, selection.Pool, result.Pool)
 
-	require.Equal(t, domain.SelectionPoolUrgentRenewal, selection.Pool)
-	require.Len(t, selection.Ordered, 2)
+	require.Equal(t, domain.SelectionPoolFallback, selection.Pool)
+	require.Len(t, selection.Ordered, 3)
 	assert.Equal(t, domain.AccountID("urgent-sooner"), selection.Ordered[0].Status.Account.ID)
 	assert.Equal(t, 1, selection.Ordered[0].Rank)
 	assert.Equal(t, domain.AccountID("urgent-later"), selection.Ordered[1].Status.Account.ID)
 	assert.Equal(t, 2, selection.Ordered[1].Rank)
+	assert.Equal(t, domain.AccountID("fallback-best"), selection.Ordered[2].Status.Account.ID)
+	assert.Equal(t, 3, selection.Ordered[2].Rank)
 	require.NotNil(t, selection.Selected)
 	var selected RecommendedAccount
 	selected = *selection.Selected
@@ -147,9 +183,9 @@ func TestServiceRecommendAccountsUsesFallbackOrdering(t *testing.T) {
 	require.Len(t, selection.Ordered, 4)
 	assert.Equal(t, []domain.AccountID{
 		"weekly-best-daily-best-earlier",
-		"weekly-best-daily-best",
 		"weekly-best-daily-worse",
 		"weekly-next",
+		"weekly-best-daily-best",
 	}, []domain.AccountID{
 		selection.Ordered[0].Status.Account.ID,
 		selection.Ordered[1].Status.Account.ID,

@@ -8,9 +8,10 @@ import (
 type SelectionPool string
 
 const (
-	SelectionPoolFallback      SelectionPool = "fallback"
-	SelectionPoolUrgentRenewal SelectionPool = "urgent_renewal"
+	SelectionPoolFallback SelectionPool = "fallback"
 )
+
+const selectionPressureRelativeTolerance = 0.05
 
 type SelectionCandidate struct {
 	AccountID       AccountID
@@ -18,11 +19,8 @@ type SelectionCandidate struct {
 	WeeklyRemaining float64
 	DailyRemaining  float64
 	RenewalAt       *time.Time
-}
-
-type SelectionPolicy struct {
-	UrgentRenewalWindow          time.Duration
-	UrgentRenewalWeeklyThreshold float64
+	WeeklyResetsAt  *time.Time
+	DailyResetsAt   *time.Time
 }
 
 type RankedSelectionCandidate struct {
@@ -43,6 +41,8 @@ func SelectionCandidateFromAccount(account Account, now time.Time) SelectionCand
 		WeeklyRemaining: selectionRemainingPercent(account.Limits.Weekly, now),
 		DailyRemaining:  selectionRemainingPercent(account.Limits.Daily, now),
 		RenewalAt:       selectionRenewalAt(account.Subscription),
+		WeeklyResetsAt:  selectionLimitResetsAt(account.Limits.Weekly, now),
+		DailyResetsAt:   selectionLimitResetsAt(account.Limits.Daily, now),
 	}
 }
 
@@ -61,23 +61,14 @@ func AccountUsableForSelection(account Account, now time.Time) bool {
 	return true
 }
 
-func RankSelectionCandidates(candidates []SelectionCandidate, policy SelectionPolicy, now time.Time) SelectionRanking {
+func RankSelectionCandidates(candidates []SelectionCandidate, now time.Time) SelectionRanking {
 	eligible := filterEligibleSelectionCandidates(candidates)
 	pool := SelectionPoolFallback
 	ranked := eligible
 
-	urgent := filterUrgentRenewalSelectionCandidates(eligible, policy, now)
-	if len(urgent) > 0 {
-		pool = SelectionPoolUrgentRenewal
-		ranked = urgent
-		sort.Slice(ranked, func(i, j int) bool {
-			return compareUrgentSelectionCandidates(ranked[i], ranked[j]) < 0
-		})
-	} else {
-		sort.Slice(ranked, func(i, j int) bool {
-			return compareFallbackSelectionCandidates(ranked[i], ranked[j]) < 0
-		})
-	}
+	sort.Slice(ranked, func(i, j int) bool {
+		return compareSelectionCandidates(ranked[i], ranked[j], now) < 0
+	})
 
 	result := SelectionRanking{
 		Pool:       pool,
@@ -107,48 +98,16 @@ func filterEligibleSelectionCandidates(candidates []SelectionCandidate) []Select
 	return eligible
 }
 
-func filterUrgentRenewalSelectionCandidates(candidates []SelectionCandidate, policy SelectionPolicy, now time.Time) []SelectionCandidate {
-	urgent := make([]SelectionCandidate, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate.WeeklyRemaining <= policy.UrgentRenewalWeeklyThreshold {
-			continue
-		}
-		if !selectionRenewsWithin(candidate.RenewalAt, now, policy.UrgentRenewalWindow) {
-			continue
-		}
-		urgent = append(urgent, candidate)
-	}
-
-	return urgent
-}
-
-func selectionRenewsWithin(renewalAt *time.Time, now time.Time, window time.Duration) bool {
-	if renewalAt == nil || renewalAt.IsZero() || renewalAt.Before(now) {
-		return false
-	}
-
-	if window <= 0 {
-		return renewalAt.Equal(now)
-	}
-
-	return !renewalAt.After(now.Add(window))
-}
-
-func compareUrgentSelectionCandidates(left, right SelectionCandidate) int {
-	if cmp := compareSelectionRenewal(left.RenewalAt, right.RenewalAt); cmp != 0 {
+func compareSelectionCandidates(left, right SelectionCandidate, now time.Time) int {
+	if cmp := compareSelectionPressure(SelectionSubscriptionWeeklyPressure(left, now), SelectionSubscriptionWeeklyPressure(right, now)); cmp != 0 {
 		return cmp
 	}
-	if cmp := compareSelectionRemaining(left.WeeklyRemaining, right.WeeklyRemaining); cmp != 0 {
+	if cmp := compareSelectionPressure(SelectionWeeklyResetPressure(left, now), SelectionWeeklyResetPressure(right, now)); cmp != 0 {
 		return cmp
 	}
-	if cmp := compareSelectionRemaining(left.DailyRemaining, right.DailyRemaining); cmp != 0 {
+	if cmp := compareSelectionPressure(SelectionDailyResetPressure(left, now), SelectionDailyResetPressure(right, now)); cmp != 0 {
 		return cmp
 	}
-
-	return compareSelectionAccountID(left.AccountID, right.AccountID)
-}
-
-func compareFallbackSelectionCandidates(left, right SelectionCandidate) int {
 	if cmp := compareSelectionRemaining(left.WeeklyRemaining, right.WeeklyRemaining); cmp != 0 {
 		return cmp
 	}
@@ -171,6 +130,67 @@ func compareSelectionRemaining(left, right float64) int {
 	}
 
 	return 0
+}
+
+func compareSelectionPressure(left, right float64) int {
+	if selectionPressureWithinRelativeTolerance(left, right) {
+		return 0
+	}
+	if left > right {
+		return -1
+	}
+	return 1
+}
+
+func selectionPressureWithinRelativeTolerance(left, right float64) bool {
+	diff := left - right
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff == 0 {
+		return true
+	}
+
+	largest := left
+	if right > largest {
+		largest = right
+	}
+	if largest <= 0 {
+		return true
+	}
+
+	return diff/largest <= selectionPressureRelativeTolerance
+}
+
+// SelectionSubscriptionWeeklyPressure estimates how much weekly capacity must be used per hour
+// to avoid wasting it before the subscription period ends.
+func SelectionSubscriptionWeeklyPressure(candidate SelectionCandidate, now time.Time) float64 {
+	return candidate.WeeklyRemaining / selectionHoursUntil(candidate.RenewalAt, now, 30*24)
+}
+
+// SelectionWeeklyResetPressure estimates how much weekly capacity must be used per hour
+// to avoid wasting it before the current weekly window resets.
+func SelectionWeeklyResetPressure(candidate SelectionCandidate, now time.Time) float64 {
+	return candidate.WeeklyRemaining / selectionHoursUntil(candidate.WeeklyResetsAt, now, 7*24)
+}
+
+// SelectionDailyResetPressure estimates how much 5-hour capacity must be used per hour
+// to avoid wasting it before the short window resets.
+func SelectionDailyResetPressure(candidate SelectionCandidate, now time.Time) float64 {
+	return candidate.DailyRemaining / selectionHoursUntil(candidate.DailyResetsAt, now, 5)
+}
+
+func selectionHoursUntil(deadline *time.Time, now time.Time, fallbackHours float64) float64 {
+	if deadline == nil || deadline.IsZero() || now.IsZero() {
+		return fallbackHours
+	}
+
+	remaining := deadline.Sub(now).Hours()
+	if remaining < 1 {
+		return 1
+	}
+
+	return remaining
 }
 
 func compareSelectionRenewal(left, right *time.Time) int {
@@ -233,4 +253,13 @@ func selectionRenewalAt(sub *Subscription) *time.Time {
 
 	renewalAt := sub.ActiveUntil
 	return &renewalAt
+}
+
+func selectionLimitResetsAt(limit *AccountLimitSnapshot, now time.Time) *time.Time {
+	if limit == nil || limit.ResetsAt.IsZero() || !limit.ResetsAt.After(now) {
+		return nil
+	}
+
+	resetsAt := limit.ResetsAt
+	return &resetsAt
 }
