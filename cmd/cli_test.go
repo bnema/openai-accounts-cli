@@ -125,6 +125,10 @@ func TestRootCommandIncludesInstallAndHandleOpencodeCommands(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "opencode", installCmd.Name())
 
+	installPICmd, _, err := root.Find([]string{"install", "pi"})
+	require.NoError(t, err)
+	assert.Equal(t, "pi", installPICmd.Name())
+
 	handleCmd, _, err := root.Find([]string{"handle", "opencode"})
 	require.NoError(t, err)
 	assert.Equal(t, "opencode", handleCmd.Name())
@@ -139,6 +143,7 @@ func TestInstallCommandWithoutTargetPrintsHelp(t *testing.T) {
 	assert.Contains(t, stdout, "Install local tool integrations")
 	assert.Contains(t, stdout, "Usage:")
 	assert.Contains(t, stdout, "opencode")
+	assert.Contains(t, stdout, "pi")
 }
 
 func TestHandleCommandWithoutTargetPrintsHelp(t *testing.T) {
@@ -274,6 +279,31 @@ func TestOpencodeHandleReturnsFallbackJSONWhenAccountIDMissing(t *testing.T) {
 	assert.Contains(t, stdout, `"retry_safe":false`)
 	assert.Contains(t, stdout, `missing account_id; will not retry without current account context`)
 	assert.NotContains(t, stdout, `"auth":`)
+}
+
+func TestPiInstallWritesAuthHotReloadExtension(t *testing.T) {
+	home := t.TempDir()
+
+	stdout, _, err := executeCLI(t, home, "install", "pi")
+	require.NoError(t, err)
+
+	extensionPath := filepath.Join(home, ".pi", "agent", "extensions", "oa-auth-hot-reload.ts")
+	assert.Contains(t, stdout, extensionPath)
+
+	data, readErr := os.ReadFile(extensionPath)
+	require.NoError(t, readErr)
+	extension := string(data)
+	assert.Contains(t, extension, `pi.registerCommand("oa-auth-reload"`)
+	assert.Contains(t, extension, "ctx.modelRegistry.authStorage.reload()")
+	assert.Contains(t, extension, "ctx.modelRegistry.refresh()")
+	assert.Contains(t, extension, "watch(agentDir")
+	assert.Contains(t, extension, `pi.on("context"`)
+	assert.Contains(t, extension, `pi.on("after_provider_response"`)
+	assert.Contains(t, extension, "oa sync pi --evenly")
+
+	info, statErr := os.Stat(extensionPath)
+	require.NoError(t, statErr)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
 func TestOpencodeInstallWritesPluginAndConfig(t *testing.T) {

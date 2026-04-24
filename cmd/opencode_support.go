@@ -21,6 +21,7 @@ const (
 	opencodeAuthRelPath  = ".local/share/opencode/auth.json"
 	codexAuthRelPath     = ".codex/auth.json"
 	piAuthRelPath        = ".pi/agent/auth.json"
+	piExtensionRelPath   = ".pi/agent/extensions/oa-auth-hot-reload.ts"
 	piProviderID         = "openai-codex"
 	systemdUserRelDir    = ".config/systemd/user"
 	opencodeServiceName  = "oa-opencode-sync.service"
@@ -57,6 +58,10 @@ func codexAuthPath() (string, error) {
 
 func piAuthPath() (string, error) {
 	return opencodeHomeJoin(piAuthRelPath)
+}
+
+func piExtensionPath() (string, error) {
+	return opencodeHomeJoin(piExtensionRelPath)
 }
 
 func opencodeSystemdUnitDir() (string, error) {

@@ -40,7 +40,8 @@ oa
 |- handle                          Handle local tool integration callbacks
 |  `- opencode --json              Handle OpenCode requests via JSON stdin/stdout
 |- install                         Install local tool integrations
-|  `- opencode                     Install OpenCode integration
+|  |- opencode                     Install OpenCode integration
+|  `- pi                           Install Pi auth hot-reload extension
 |- opencode                        Manage OpenCode integration
 |  |- doctor                       Check OpenCode integration
 |  |- install-systemd              Install a systemd user timer for OpenCode sync
@@ -90,6 +91,15 @@ oa sync codex
 oa sync pi
 oa sync --all
 ```
+
+Install the Pi extension once to let active Pi sessions pick up `oa sync pi` changes without restarting:
+
+```bash
+oa install pi
+# then run /reload in already-open Pi sessions
+```
+
+The installed extension watches `~/.pi/agent/auth.json`, reloads Pi auth in memory before the next provider call, and tries `oa sync pi --evenly` after OpenAI Codex HTTP 401/429 responses.
 
 Add `--evenly` to rotate among top candidates using recent selection history:
 

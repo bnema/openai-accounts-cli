@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+//go:embed extensions/pi/oa-auth-hot-reload.ts
+var piAuthHotReloadExtension string
 
 func newInstallCmd(app *app) *cobra.Command {
 	cmd := &cobra.Command{
@@ -18,8 +22,33 @@ func newInstallCmd(app *app) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(newOpencodeInstallCmd(app))
+	cmd.AddCommand(
+		newOpencodeInstallCmd(app),
+		newPIInstallCmd(app),
+	)
 	return cmd
+}
+
+func newPIInstallCmd(_ *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "pi",
+		Short: "Install Pi auth hot-reload extension",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			path, err := piExtensionPath()
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				return fmt.Errorf("create pi extension directory: %w", err)
+			}
+			if err := os.WriteFile(path, []byte(piAuthHotReloadExtension), 0o600); err != nil {
+				return fmt.Errorf("write pi auth hot-reload extension: %w", err)
+			}
+
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "installed Pi extension to %s\nreload active Pi sessions with /reload\n", path)
+			return err
+		},
+	}
 }
 
 func newOpencodeInstallCmd(_ *app) *cobra.Command {
