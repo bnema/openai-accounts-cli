@@ -226,6 +226,53 @@ func TestRankSelectionCandidatesUsesDailyPressureAfterComparableWeeklyRisk(t *te
 	assert.Equal(t, AccountID("weekly-slightly-better-daily-worse"), ranking.Candidates[1].Candidate.AccountID)
 }
 
+func TestSelectionCandidateFromAccountTreatsExhaustedDailyWithoutResetAsUnavailable(t *testing.T) {
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+
+	candidate := SelectionCandidateFromAccount(Account{
+		ID: "exhausted-daily-no-reset",
+		Subscription: &Subscription{
+			ActiveUntil: now.Add(24 * time.Hour),
+		},
+		Limits: AccountLimitSnapshots{
+			Daily: &AccountLimitSnapshot{
+				Percent: 100,
+			},
+			Weekly: &AccountLimitSnapshot{
+				Percent:  25,
+				ResetsAt: now.Add(48 * time.Hour),
+			},
+		},
+	}, now)
+
+	assert.False(t, candidate.Eligible)
+	assert.Equal(t, 0.0, candidate.DailyRemaining)
+}
+
+func TestSelectionCandidateFromAccountTreatsOnePercentDailyRemainingAsUnavailableUntilReset(t *testing.T) {
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+
+	candidate := SelectionCandidateFromAccount(Account{
+		ID: "nearly-empty-daily",
+		Subscription: &Subscription{
+			ActiveUntil: now.Add(24 * time.Hour),
+		},
+		Limits: AccountLimitSnapshots{
+			Daily: &AccountLimitSnapshot{
+				Percent:  99,
+				ResetsAt: now.Add(5 * time.Hour),
+			},
+			Weekly: &AccountLimitSnapshot{
+				Percent:  25,
+				ResetsAt: now.Add(48 * time.Hour),
+			},
+		},
+	}, now)
+
+	assert.False(t, candidate.Eligible)
+	assert.Equal(t, 1.0, candidate.DailyRemaining)
+}
+
 func TestSelectionCandidateFromAccountTreatsPassedResetPartialUsageAsFullyAvailable(t *testing.T) {
 	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
 

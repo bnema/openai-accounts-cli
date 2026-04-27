@@ -196,6 +196,107 @@ func TestServiceRecommendAccountsUsesFallbackOrdering(t *testing.T) {
 	assert.Equal(t, selection.Ordered[0], *selection.Selected)
 }
 
+func TestRecommendAccountsFromStatusesTreatsExhaustedDailyWithoutResetAsUnavailable(t *testing.T) {
+	now := time.Date(2026, time.April, 5, 12, 0, 0, 0, time.UTC)
+
+	activeUntil := now.Add(24 * time.Hour)
+
+	selection := RecommendAccountsFromStatuses([]Status{
+		{
+			Account: domain.Account{
+				ID: "exhausted-daily-no-reset",
+				Subscription: &domain.Subscription{
+					ActiveUntil: activeUntil,
+				},
+				Limits: domain.AccountLimitSnapshots{
+					Daily: &domain.AccountLimitSnapshot{Percent: 100},
+				},
+			},
+			DailyLimit: &StatusLimit{
+				Window:     LimitWindowDaily,
+				Percent:    100,
+				CapturedAt: now,
+			},
+			Subscription: &StatusSubscription{
+				ActiveUntil: activeUntil,
+			},
+		},
+	}, now)
+
+	assert.Empty(t, selection.Ordered)
+	assert.Nil(t, selection.Selected)
+	assert.Equal(t, RecommendationUnavailableReset, selection.UnavailableReason)
+}
+
+func TestServiceRecommendAccountsSkipsOnePercentDailyRemainingUntilReset(t *testing.T) {
+	now := time.Date(2026, time.April, 5, 12, 0, 0, 0, time.UTC)
+	dailyReset := now.Add(5 * time.Hour)
+	weeklyReset := now.Add(48 * time.Hour)
+	renewal := now.Add(14 * 24 * time.Hour)
+
+	selection := RecommendAccountsFromStatuses([]Status{
+		{
+			Account: domain.Account{
+				ID: "nearly-empty-5hours",
+				Subscription: &domain.Subscription{
+					ActiveUntil: renewal,
+				},
+				Limits: domain.AccountLimitSnapshots{
+					Daily:  &domain.AccountLimitSnapshot{Percent: 99, ResetsAt: dailyReset},
+					Weekly: &domain.AccountLimitSnapshot{Percent: 68, ResetsAt: weeklyReset},
+				},
+			},
+			DailyLimit: &StatusLimit{
+				Window:     LimitWindowDaily,
+				Percent:    99,
+				ResetsAt:   dailyReset,
+				CapturedAt: now,
+			},
+			WeeklyLimit: &StatusLimit{
+				Window:     LimitWindowWeekly,
+				Percent:    68,
+				ResetsAt:   weeklyReset,
+				CapturedAt: now,
+			},
+			Subscription: &StatusSubscription{
+				ActiveUntil: renewal,
+			},
+		},
+		{
+			Account: domain.Account{
+				ID: "usable-5hours",
+				Subscription: &domain.Subscription{
+					ActiveUntil: renewal,
+				},
+				Limits: domain.AccountLimitSnapshots{
+					Daily:  &domain.AccountLimitSnapshot{Percent: 0, ResetsAt: dailyReset},
+					Weekly: &domain.AccountLimitSnapshot{Percent: 74, ResetsAt: weeklyReset},
+				},
+			},
+			DailyLimit: &StatusLimit{
+				Window:     LimitWindowDaily,
+				Percent:    0,
+				ResetsAt:   dailyReset,
+				CapturedAt: now,
+			},
+			WeeklyLimit: &StatusLimit{
+				Window:     LimitWindowWeekly,
+				Percent:    74,
+				ResetsAt:   weeklyReset,
+				CapturedAt: now,
+			},
+			Subscription: &StatusSubscription{
+				ActiveUntil: renewal,
+			},
+		},
+	}, now)
+
+	require.Len(t, selection.Ordered, 1)
+	assert.Equal(t, domain.AccountID("usable-5hours"), selection.Ordered[0].Status.Account.ID)
+	require.NotNil(t, selection.Selected)
+	assert.Equal(t, selection.Ordered[0], *selection.Selected)
+}
+
 func TestServiceRecommendAccountsDoesNotRequireSyncSpecificAuth(t *testing.T) {
 	now := time.Date(2026, time.April, 5, 12, 0, 0, 0, time.UTC)
 	soon := now.Add(24 * time.Hour)

@@ -15,6 +15,12 @@ const (
 // pressure scores to be treated as equivalent.
 const SelectionPressureRelativeTolerance = 0.05
 
+// SelectionMinimumUsableDailyRemainingPercent is the lowest 5-hour window
+// capacity that is still considered usable for automatic account selection.
+// At 1% remaining or below, Codex/OpenAI sessions are effectively unusable
+// until the short window resets, so the account is skipped.
+const SelectionMinimumUsableDailyRemainingPercent = 1
+
 type SelectionCandidate struct {
 	AccountID       AccountID
 	Eligible        bool
@@ -53,7 +59,7 @@ func AccountUsableForSelection(account Account, now time.Time) bool {
 		return false
 	}
 
-	if limitExhaustedUntilReset(account.Limits.Daily, now) {
+	if dailyLimitUnavailableUntilReset(account.Limits.Daily, now) {
 		return false
 	}
 	if limitExhaustedUntilReset(account.Limits.Weekly, now) {
@@ -61,6 +67,21 @@ func AccountUsableForSelection(account Account, now time.Time) bool {
 	}
 
 	return true
+}
+
+func dailyLimitUnavailableUntilReset(snapshot *AccountLimitSnapshot, now time.Time) bool {
+	if snapshot == nil {
+		return false
+	}
+
+	if snapshot.ResetsAt.IsZero() {
+		return snapshot.Percent >= 100
+	}
+	if !snapshot.ResetsAt.After(now) {
+		return false
+	}
+
+	return selectionRemainingPercent(snapshot, now) <= SelectionMinimumUsableDailyRemainingPercent
 }
 
 func RankSelectionCandidates(candidates []SelectionCandidate, now time.Time) SelectionRanking {

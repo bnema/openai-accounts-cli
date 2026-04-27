@@ -139,7 +139,22 @@ func recommendationUnavailableReason(statuses []Status, now time.Time) Recommend
 }
 
 func statusAvailableByLimits(status Status, now time.Time) bool {
-	return !statusLimitExhaustedUntilReset(status.DailyLimit, now) && !statusLimitExhaustedUntilReset(status.WeeklyLimit, now)
+	return !statusDailyLimitUnavailableUntilReset(status.DailyLimit, now) && !statusLimitExhaustedUntilReset(status.WeeklyLimit, now)
+}
+
+func statusDailyLimitUnavailableUntilReset(limit *StatusLimit, now time.Time) bool {
+	if limit == nil {
+		return false
+	}
+
+	if limit.ResetsAt.IsZero() {
+		return limit.Percent >= 100
+	}
+	if !limit.ResetsAt.After(now) {
+		return false
+	}
+
+	return statusLimitRemainingPercent(limit) <= domain.SelectionMinimumUsableDailyRemainingPercent
 }
 
 func statusHasEligibleSubscription(status Status, now time.Time) bool {
@@ -153,6 +168,22 @@ func statusHasEligibleSubscription(status Status, now time.Time) bool {
 	}
 
 	return true
+}
+
+func statusLimitRemainingPercent(limit *StatusLimit) float64 {
+	if limit == nil {
+		return 100
+	}
+
+	remaining := 100 - limit.Percent
+	if remaining < 0 {
+		return 0
+	}
+	if remaining > 100 {
+		return 100
+	}
+
+	return remaining
 }
 
 func statusLimitExhaustedUntilReset(limit *StatusLimit, now time.Time) bool {
