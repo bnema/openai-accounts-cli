@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/bnema/openai-accounts-cli/internal/application"
+	"github.com/bnema/openai-accounts-cli/internal/domain"
+
 	"github.com/spf13/cobra"
 )
 
@@ -16,8 +18,25 @@ type syncTargetTokenWriter struct {
 	write syncTokenWriter
 }
 
+type syncFlags struct {
+	evenly         bool
+	forceAccountID string
+}
+
+func (f syncFlags) options() syncOptions {
+	return syncOptions{
+		evenly:         f.evenly,
+		forceAccountID: domain.AccountID(f.forceAccountID),
+	}
+}
+
+type syncOptions struct {
+	evenly         bool
+	forceAccountID domain.AccountID
+}
+
 func newSyncCmd(app *app) *cobra.Command {
-	var evenly bool
+	flags := syncFlags{}
 	var all bool
 
 	cmd := &cobra.Command{
@@ -27,52 +46,53 @@ func newSyncCmd(app *app) *cobra.Command {
 			if !all {
 				return cmd.Help()
 			}
-			return syncAllTargets(cmd, app, evenly)
+			return syncAllTargets(cmd, app, flags.options())
 		},
 	}
 
-	cmd.PersistentFlags().BoolVar(&evenly, "evenly", false, "rebalance among top candidates using recent selection history")
+	cmd.PersistentFlags().BoolVar(&flags.evenly, "evenly", false, "rebalance among top candidates using recent selection history")
+	cmd.PersistentFlags().StringVar(&flags.forceAccountID, "force-account-id", "", "sync with this account ID instead of the best ranked account")
 	cmd.Flags().BoolVar(&all, "all", false, "sync all supported targets")
 
 	cmd.AddCommand(
-		newSyncOpencodeCmd(app, &evenly),
-		newSyncCodexCmd(app, &evenly),
-		newSyncPICmd(app, &evenly),
+		newSyncOpencodeCmd(app, &flags),
+		newSyncCodexCmd(app, &flags),
+		newSyncPICmd(app, &flags),
 	)
 
 	return cmd
 }
 
-func newSyncCodexCmd(app *app, evenly *bool) *cobra.Command {
+func newSyncCodexCmd(app *app, flags *syncFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "codex",
 		Short: "Sync Codex auth",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return syncSingleTarget(cmd, app, *evenly, "Codex", writeOAuthTokensToCodex)
+			return syncSingleTarget(cmd, app, flags.options(), "Codex", writeOAuthTokensToCodex)
 		},
 	}
 }
 
-func newSyncPICmd(app *app, evenly *bool) *cobra.Command {
+func newSyncPICmd(app *app, flags *syncFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:     "pi",
 		Aliases: []string{"pi-mono"},
 		Short:   "Sync Pi auth",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return syncSingleTarget(cmd, app, *evenly, "Pi", writeOAuthTokensToPI)
+			return syncSingleTarget(cmd, app, flags.options(), "Pi", writeOAuthTokensToPI)
 		},
 	}
 }
 
-func syncSingleTarget(cmd *cobra.Command, app *app, evenly bool, targetName string, writer syncTokenWriter) error {
-	tokens, status, err := loadTokensForBestCandidate(cmd, app, evenly)
+func syncSingleTarget(cmd *cobra.Command, app *app, options syncOptions, targetName string, writer syncTokenWriter) error {
+	tokens, status, err := loadTokensForSync(cmd, app, options)
 	if err != nil {
 		return err
 	}
 	if err := writer(app, tokens); err != nil {
 		return err
 	}
-	if evenly {
+	if options.evenly {
 		if err := app.service.RecordSelection(cmd.Context(), status.Account.ID); err != nil {
 			return fmt.Errorf("record selection history: %w", err)
 		}
@@ -82,8 +102,12 @@ func syncSingleTarget(cmd *cobra.Command, app *app, evenly bool, targetName stri
 	return err
 }
 
-func loadTokensForBestCandidate(cmd *cobra.Command, app *app, evenly bool) (oauthTokens, application.Status, error) {
-	ranked, err := freshRankedSyncAccounts(cmd, app, evenly)
+func loadTokensForSync(cmd *cobra.Command, app *app, options syncOptions) (oauthTokens, application.Status, error) {
+	if options.forceAccountID != "" {
+		return loadOAuthTokensForAccount(cmd.Context(), app, options.forceAccountID)
+	}
+
+	ranked, err := freshRankedSyncAccounts(cmd, app, options.evenly)
 	if err != nil {
 		return oauthTokens{}, application.Status{}, err
 	}
@@ -146,16 +170,8 @@ func refreshSyncUsageCaches(cmd *cobra.Command, app *app) error {
 	return fetchAccountsConcurrently(cmd.Context(), app, filterChatGPTAccounts(statuses), cmd.ErrOrStderr())
 }
 
-func syncAllTargets(cmd *cobra.Command, app *app, evenly bool) error {
-	ranked, err := freshRankedSyncAccounts(cmd, app, evenly)
-	if err != nil {
-		return err
-	}
-	if len(ranked) == 0 {
-		return application.ErrNoEligibleSyncAccount
-	}
-
-	tokens, status, err := loadTokensForAvailableAccount(cmd, app, ranked)
+func syncAllTargets(cmd *cobra.Command, app *app, options syncOptions) error {
+	tokens, status, err := loadTokensForSync(cmd, app, options)
 	if err != nil {
 		return err
 	}
@@ -165,7 +181,7 @@ func syncAllTargets(cmd *cobra.Command, app *app, evenly bool) error {
 		return err
 	}
 
-	if evenly {
+	if options.evenly {
 		if err := app.service.RecordSelection(cmd.Context(), status.Account.ID); err != nil {
 			return fmt.Errorf("record selection history: %w", err)
 		}

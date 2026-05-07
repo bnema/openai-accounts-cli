@@ -418,6 +418,70 @@ func TestOpencodeSyncSelectsBestEligibleAccountAndWritesOpenAIAuthEntry(t *testi
 	assert.NotContains(t, string(data), `"codex"`)
 }
 
+func TestOpencodeSyncForceAccountIDOverridesBestEligibleAccount(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	stdout, _, err := executeCLI(t, home, "sync", "opencode", "--force-account-id", "acc-2")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "acc-2")
+	assert.NotContains(t, stdout, "acc-3")
+
+	authPath := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	data, readErr := os.ReadFile(authPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"accountId": "chatgpt-account-2"`)
+	assert.NotContains(t, string(data), "chatgpt-account-3")
+}
+
+func TestOpencodeSyncForceAccountIDDoesNotFallBackWhenForcedAccountIsUnavailable(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", `not-json`,
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	_, _, err = executeCLI(t, home, "sync", "opencode", "--force-account-id", "acc-2")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "account [acc-2]")
+	assert.Contains(t, err.Error(), "decode tokens")
+	assert.NotContains(t, err.Error(), "acc-3")
+
+	_, statErr := os.Stat(filepath.Join(home, ".local", "share", "opencode", "auth.json"))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
 func TestOpencodeSyncPreservesOtherProviderEntries(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
