@@ -39,12 +39,21 @@ Item {
         return `Updated ${deltaDays} day${deltaDays === 1 ? "" : "s"} ago`;
     }
 
+    function formatAbsoluteDate(value) {
+        if (!value)
+            return "unknown date";
+
+        const at = new Date(value);
+        return isNaN(at.getTime()) ? "unknown date" : at.toLocaleString();
+    }
+
     function hasRenewableSubscription(account) {
         if (!account || !account.subscription || !account.subscription.active_until)
             return false;
 
         const renewalAt = new Date(account.subscription.active_until);
-        return !isNaN(renewalAt.getTime()) && renewalAt.getFullYear() > 1;
+        const validSubscriptionCutoff = new Date("1970-01-02T00:00:00Z");
+        return !isNaN(renewalAt.getTime()) && renewalAt >= validSubscriptionCutoff;
     }
 
     function visibleAccounts() {
@@ -391,7 +400,7 @@ Item {
                                 NText {
                                     visible: !!modelData.subscription
                                     Layout.fillWidth: true
-                                    text: modelData.subscription ? `Subscription until ${root.formatUpdated(modelData.subscription.active_until)}` : ""
+                                    text: modelData.subscription ? `Subscription until ${root.formatAbsoluteDate(modelData.subscription.active_until)}` : ""
                                     wrapMode: Text.Wrap
                                     pointSize: Style.fontSizeS
                                     color: Color.mOnSurfaceVariant

@@ -72,7 +72,8 @@ func writeJSONError(cmd *cobra.Command, err error) error {
 			Error: err.Error(),
 		})
 		if encodeErr != nil {
-			return encodeErr
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "failed to encode JSON error: %v\n", encodeErr)
+			return renderedCommandError{err: err}
 		}
 		return renderedCommandError{err: err}
 	}
@@ -124,7 +125,8 @@ func executeRootCommand(root *cobra.Command, args []string) error {
 			Error: err.Error(),
 		})
 		if encodeErr != nil {
-			return encodeErr
+			_, _ = fmt.Fprintf(root.ErrOrStderr(), "failed to encode JSON error: %v\n", encodeErr)
+			return err
 		}
 		return err
 	}

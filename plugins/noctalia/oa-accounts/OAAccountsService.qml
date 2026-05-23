@@ -57,23 +57,7 @@ Item {
     }
 
     function defaultSyncTargets() {
-        return [{
-            "id": "opencode",
-            "label": "OpenCode",
-            "command": ["sync", "opencode", "--json"]
-        }, {
-            "id": "codex",
-            "label": "Codex",
-            "command": ["sync", "codex", "--json"]
-        }, {
-            "id": "pi",
-            "label": "Pi",
-            "command": ["sync", "pi", "--json"]
-        }, {
-            "id": "all",
-            "label": "All",
-            "command": ["sync", "--all", "--json"]
-        }];
+        return snapshot && snapshot.sync_targets ? snapshot.sync_targets : [];
     }
 
     function snapshotCommand(forceRefresh) {
@@ -196,8 +180,8 @@ Item {
             if (exitCode === 0) {
                 const parsed = root.parseJSON(actionStdout.text, {
                 });
-                if (parsed.ok === false) {
-                    errorText = parsed.error || `Failed to sync ${pendingActionLabel}`;
+                if (!(parsed && parsed.ok === true)) {
+                    errorText = parsed && parsed.error ? parsed.error : `Failed to sync ${pendingActionLabel}`;
                     return ;
                 }
                 const accountName = parsed.account_name || parsed.account_id || "selected account";
@@ -205,6 +189,7 @@ Item {
                 if (parsed.warnings)
                     warnings = parsed.warnings;
 
+                refreshTimer.restart();
                 refresh(false);
                 return ;
             }

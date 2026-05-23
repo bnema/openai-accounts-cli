@@ -67,10 +67,6 @@ func newLoginDeviceCmd(app *app) *cobra.Command {
 }
 
 func runBrowserLogin(cmd *cobra.Command, app *app, accountID domain.AccountID) error {
-	if wantsJSON(cmd) {
-		cmd.Root().SilenceErrors = true
-	}
-
 	pkce, err := authadapter.NewPKCEPair()
 	if err != nil {
 		return writeJSONError(cmd, fmt.Errorf("generate pkce: %w", err))

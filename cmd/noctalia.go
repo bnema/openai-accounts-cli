@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/bnema/openai-accounts-cli/internal/application"
@@ -212,8 +213,8 @@ func buildNoctaliaAccounts(statuses []application.Status, recommendation applica
 				Selected: selected[status.Account.ID],
 				Eligible: domain.AccountUsableForSelection(status.Account, now),
 			},
-			Daily:        buildNoctaliaLimit(status.DailyLimit),
-			Weekly:       buildNoctaliaLimit(status.WeeklyLimit),
+			Daily:        buildNoctaliaLimit(status.Account.ID, "daily", status.DailyLimit),
+			Weekly:       buildNoctaliaLimit(status.Account.ID, "weekly", status.WeeklyLimit),
 			Subscription: buildNoctaliaSubscription(status.Subscription),
 		}
 		accounts = append(accounts, account)
@@ -222,9 +223,13 @@ func buildNoctaliaAccounts(statuses []application.Status, recommendation applica
 	return accounts
 }
 
-func buildNoctaliaLimit(limit *application.StatusLimit) *noctaliaLimit {
+func buildNoctaliaLimit(accountID domain.AccountID, window string, limit *application.StatusLimit) *noctaliaLimit {
 	if limit == nil {
 		return nil
+	}
+
+	if limit.Percent < 0 || limit.Percent > 100 {
+		log.Printf("warning: noctalia snapshot %s limit percent out of range for account %s: %.2f", window, accountID, limit.Percent)
 	}
 
 	remaining := 100 - limit.Percent

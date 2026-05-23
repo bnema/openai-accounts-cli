@@ -108,5 +108,5 @@ This command keeps recommendation and eligibility logic in Go and returns warnin
 
 - `schema_version` is mandatory and must change on breaking DTO changes.
 - warnings belong in stdout JSON, not stderr, for snapshot reads.
-- sync actions are discovered from `sync_targets[*].command`.
+- sync actions are discovered from `sync_targets[*].command`; the plugin should treat snapshot `sync_targets` as authoritative instead of hardcoding its own target list.
 - QML may format labels, but must not reimplement recommendation or account-selection rules.

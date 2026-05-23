@@ -4,7 +4,7 @@ Companion Noctalia plugin for `oa`.
 
 ## Local install
 
-Build or install the CLI first:
+Build or install the CLI first from the repository root:
 
 ```bash
 go install ./cmd/oa
@@ -14,7 +14,8 @@ Install the plugin locally with a symlink:
 
 ```bash
 mkdir -p ~/.config/noctalia/plugins
-ln -sfn /absolute/path/to/openai-accounts-cli/plugins/noctalia/oa-accounts ~/.config/noctalia/plugins/oa-accounts
+PLUGIN_DIR="$(realpath plugins/noctalia/oa-accounts)"
+ln -sfn "$PLUGIN_DIR" ~/.config/noctalia/plugins/oa-accounts
 ```
 
 Then:

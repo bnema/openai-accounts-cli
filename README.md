@@ -141,12 +141,13 @@ oa sync --all --evenly
 
 A local Noctalia plugin lives at `plugins/noctalia/oa-accounts`.
 
-Install it locally:
+Install it locally from the repository root:
 
 ```bash
 go install ./cmd/oa
 mkdir -p ~/.config/noctalia/plugins
-ln -sfn $(pwd)/plugins/noctalia/oa-accounts ~/.config/noctalia/plugins/oa-accounts
+PLUGIN_DIR="$(realpath plugins/noctalia/oa-accounts)"
+ln -sfn "$PLUGIN_DIR" ~/.config/noctalia/plugins/oa-accounts
 ```
 
 Then restart or reload Noctalia, enable **OpenAI Accounts** in the plugin manager if needed, and add its bar widget.
