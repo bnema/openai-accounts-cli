@@ -52,8 +52,7 @@ Item {
             return false;
 
         const renewalAt = new Date(account.subscription.active_until);
-        const validSubscriptionCutoff = new Date("1970-01-02T00:00:00Z");
-        return !isNaN(renewalAt.getTime()) && renewalAt >= validSubscriptionCutoff;
+        return !isNaN(renewalAt.getTime()) && renewalAt > new Date();
     }
 
     function visibleAccounts() {

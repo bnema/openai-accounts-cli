@@ -192,7 +192,12 @@ func refreshSyncUsageCaches(cmd *cobra.Command, app *app) (fetchSummary, error) 
 
 	summary, err := fetchAccountsConcurrently(cmd.Context(), app, filterChatGPTAccounts(statuses))
 	if !wantsJSON(cmd) {
-		writeFetchSummaryPlain(cmd.ErrOrStderr(), summary)
+		if writeErr := writeFetchSummaryPlain(cmd.ErrOrStderr(), summary); writeErr != nil {
+			if err != nil {
+				return summary, errors.Join(err, fmt.Errorf("write fetch summary: %w", writeErr))
+			}
+			return summary, fmt.Errorf("write fetch summary: %w", writeErr)
+		}
 	}
 
 	return summary, err

@@ -7,11 +7,14 @@ Item {
     property var pluginApi: null
     property var service
 
-    Component.onCompleted: {
-        if (pluginApi)
+    function startServiceIfReady() {
+        if (pluginApi && service && service.pluginApi !== pluginApi)
             service.start(pluginApi);
 
     }
+
+    onPluginApiChanged: startServiceIfReady()
+    Component.onCompleted: startServiceIfReady()
 
     IpcHandler {
         function togglePanel() {

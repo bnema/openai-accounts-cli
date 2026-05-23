@@ -86,17 +86,25 @@ func commandRequestedJSON(cmd *cobra.Command, args []string) bool {
 		return true
 	}
 
+	found := false
+	enabled := false
 	for _, arg := range args {
-		if arg == "--json" {
-			return true
+		switch {
+		case arg == "--json":
+			found = true
+			enabled = true
+		case strings.HasPrefix(arg, "--json="):
+			parsed, err := strconv.ParseBool(strings.TrimPrefix(arg, "--json="))
+			if err != nil {
+				continue
+			}
+			found = true
+			enabled = parsed
 		}
-		if !strings.HasPrefix(arg, "--json=") {
-			continue
-		}
-		enabled, err := strconv.ParseBool(strings.TrimPrefix(arg, "--json="))
-		if err == nil {
-			return enabled
-		}
+	}
+
+	if found {
+		return enabled
 	}
 
 	return false
@@ -108,6 +116,11 @@ func executeRootCommand(root *cobra.Command, args []string) error {
 	}
 
 	root.SilenceErrors = true
+	if args == nil {
+		root.SetArgs([]string{})
+	} else {
+		root.SetArgs(args)
+	}
 
 	err := root.Execute()
 	if err == nil {

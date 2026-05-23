@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -41,7 +42,9 @@ func runAuthCheck(cmd *cobra.Command, app *app, accountID string) error {
 		if wantsJSON(cmd) {
 			return writeJSONOutput(cmd, map[string]any{"ok": true, "accounts": []any{}})
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "no ChatGPT accounts to check")
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), "no ChatGPT accounts to check"); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
 		return nil
 	}
 
@@ -53,7 +56,12 @@ func runAuthCheck(cmd *cobra.Command, app *app, accountID string) error {
 		result, err := fetchAccountsConcurrently(ctx, app, accounts)
 		summary = result
 		if !wantsJSON(cmd) {
-			writeFetchSummaryPlain(cmd.ErrOrStderr(), result)
+			if writeErr := writeFetchSummaryPlain(cmd.ErrOrStderr(), result); writeErr != nil {
+				if err != nil {
+					return errors.Join(err, fmt.Errorf("write fetch summary: %w", writeErr))
+				}
+				return fmt.Errorf("write fetch summary: %w", writeErr)
+			}
 		}
 		return err
 	}
@@ -103,7 +111,9 @@ func runAuthCheck(cmd *cobra.Command, app *app, accountID string) error {
 				continue
 			}
 			// Error details already printed to stderr by fetchAccountsConcurrently.
-			fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): FAIL — see error above\n", status.Account.ID, label)
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): FAIL — see error above\n", status.Account.ID, label); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
 			continue
 		}
 
@@ -117,7 +127,9 @@ func runAuthCheck(cmd *cobra.Command, app *app, accountID string) error {
 			})
 			continue
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): ok — %s\n", status.Account.ID, label, age)
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): ok — %s\n", status.Account.ID, label, age); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
 	}
 
 	if wantsJSON(cmd) {

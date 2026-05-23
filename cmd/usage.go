@@ -132,7 +132,12 @@ func runUsageFetch(cmd *cobra.Command, app *app, accountID string, asJSON bool) 
 		result, err := fetchAccountsConcurrently(ctx, app, chatgptAccounts)
 		summary = result
 		if !asJSON {
-			writeFetchSummaryPlain(cmd.ErrOrStderr(), result)
+			if writeErr := writeFetchSummaryPlain(cmd.ErrOrStderr(), result); writeErr != nil {
+				if err != nil {
+					return errors.Join(err, fmt.Errorf("write fetch summary: %w", writeErr))
+				}
+				return fmt.Errorf("write fetch summary: %w", writeErr)
+			}
 		}
 		return err
 	}
@@ -222,6 +227,10 @@ func fetchAccountsConcurrently(ctx context.Context, app *app, accounts []domain.
 		}
 	}
 
+	if len(accounts) == 0 {
+		return summary, nil
+	}
+
 	if len(summary.failures) == len(accounts) {
 		if len(accounts) == 1 {
 			return summary, summary.failures[0].err
@@ -232,19 +241,27 @@ func fetchAccountsConcurrently(ctx context.Context, app *app, accounts []domain.
 	return summary, nil
 }
 
-func writeFetchSummaryPlain(errWriter io.Writer, summary fetchSummary) {
+func writeFetchSummaryPlain(errWriter io.Writer, summary fetchSummary) error {
 	if errWriter == nil || !summary.hasFailures() {
-		return
+		return nil
 	}
 
-	fmt.Fprintln(errWriter, "\nFailed to fetch:")
+	if _, err := fmt.Fprintln(errWriter, "\nFailed to fetch:"); err != nil {
+		return err
+	}
 	for _, failure := range summary.failures {
-		fmt.Fprintf(errWriter, "  - %v\n", failure.err)
+		if _, err := fmt.Fprintf(errWriter, "  - %v\n", failure.err); err != nil {
+			return err
+		}
 	}
 
 	if len(summary.successes) > 0 {
-		fmt.Fprintf(errWriter, "\n%d/%d accounts updated successfully\n", len(summary.successes), len(summary.successes)+len(summary.failures))
+		if _, err := fmt.Fprintf(errWriter, "\n%d/%d accounts updated successfully\n", len(summary.successes), len(summary.successes)+len(summary.failures)); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 func fetchAndPersistLimits(ctx context.Context, app *app, account domain.Account) error {
