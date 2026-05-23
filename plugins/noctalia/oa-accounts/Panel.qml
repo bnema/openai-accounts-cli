@@ -52,7 +52,7 @@ Item {
             return false;
 
         const renewalAt = new Date(account.subscription.active_until);
-        return !isNaN(renewalAt.getTime()) && renewalAt > new Date();
+        return !isNaN(renewalAt.getTime()) && renewalAt.getTime() > root.nowMs;
     }
 
     function visibleAccounts() {

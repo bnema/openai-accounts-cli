@@ -79,6 +79,21 @@ Item {
         }
     }
 
+    function normalizeWarnings(items) {
+        if (!items || !items.length)
+            return [];
+
+        return items.map((item) => {
+            const warning = item || {
+            };
+            const message = warning.message || warning.error || "";
+            return Object.assign({
+            }, warning, {
+                "message": message
+            });
+        });
+    }
+
     function applySnapshot(parsed) {
         snapshot = parsed || ({
         });
@@ -88,7 +103,7 @@ Item {
         });
         accounts = parsed && parsed.accounts ? parsed.accounts : [];
         syncTargets = parsed && parsed.sync_targets ? parsed.sync_targets : defaultSyncTargets();
-        warnings = parsed && parsed.warnings ? parsed.warnings : [];
+        warnings = normalizeWarnings(parsed && parsed.warnings ? parsed.warnings : []);
         lastUpdated = parsed && parsed.generated_at ? parsed.generated_at : "";
         errorText = "";
     }
@@ -187,7 +202,7 @@ Item {
                 const accountName = parsed.account_name || parsed.account_id || "selected account";
                 actionText = `Synced ${pendingActionLabel} using ${accountName}`;
                 if (parsed.warnings)
-                    warnings = parsed.warnings;
+                    warnings = normalizeWarnings(parsed.warnings);
 
                 refreshTimer.restart();
                 refresh(false);
