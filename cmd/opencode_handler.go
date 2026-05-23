@@ -30,6 +30,9 @@ func newHandleCmd(app *app) *cobra.Command {
 		Use:   "handle",
 		Short: "Handle local tool integration callbacks",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if wantsJSON(cmd) {
+				return writeJSONError(cmd, fmt.Errorf("%s: subcommand required", cmd.CommandPath()))
+			}
 			return cmd.Help()
 		},
 	}
@@ -39,14 +42,12 @@ func newHandleCmd(app *app) *cobra.Command {
 }
 
 func newOpencodeHandleCmd(app *app) *cobra.Command {
-	var jsonOutput bool
-
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "opencode",
 		Short: "Handle OpenCode requests",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !jsonOutput {
-				return fmt.Errorf("%s: --json is required", cmd.CommandPath())
+			if !wantsJSON(cmd) {
+				return writeJSONError(cmd, fmt.Errorf("%s: --json is required", cmd.CommandPath()))
 			}
 
 			var request opencodeFailureRequest
@@ -62,9 +63,6 @@ func newOpencodeHandleCmd(app *app) *cobra.Command {
 			return writeOpencodeDecisionResponse(cmd, response)
 		},
 	}
-
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output JSON")
-	return cmd
 }
 
 func handleOpencodeFailure(cmd *cobra.Command, app *app, request opencodeFailureRequest) (opencodeDecisionResponse, error) {

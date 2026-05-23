@@ -10,9 +10,9 @@ import (
 )
 
 type doctorCheck struct {
-	Name   string
-	Status string
-	Detail string
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
 }
 
 func newOpencodeDoctorCmd(app *app) *cobra.Command {
@@ -22,7 +22,11 @@ func newOpencodeDoctorCmd(app *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			checks, err := runOpencodeDoctor(cmd.Context(), app)
 			if err != nil {
-				return err
+				return writeJSONError(cmd, err)
+			}
+
+			if wantsJSON(cmd) {
+				return writeJSONOutput(cmd, map[string]any{"checks": checks})
 			}
 
 			for _, check := range checks {

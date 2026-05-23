@@ -1,19 +1,34 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+)
 
 func Execute() error {
-	return newRootCmd().Execute()
+	return executeRootCommand(newRootCmd(), os.Args[1:])
 }
 
 func newBaseRootCmd() *cobra.Command {
-	return &cobra.Command{
+	rootCmd := &cobra.Command{
 		Use:           "oa",
 		Short:         "OpenAI Accounts CLI (oa): manage auth and usage limits",
 		Long:          "oa (OpenAI Accounts CLI) helps you store account auth references, run OpenAI login flows, fetch usage/limit snapshots, and view account status from the terminal.",
 		SilenceUsage:  true,
 		SilenceErrors: false,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if wantsJSON(cmd) {
+				return writeJSONError(cmd, fmt.Errorf("%s: subcommand required", cmd.CommandPath()))
+			}
+			return cmd.Help()
+		},
 	}
+
+	rootCmd.PersistentFlags().Bool("json", false, "Render JSON output")
+
+	return rootCmd
 }
 
 func newRootCmd() *cobra.Command {
@@ -21,8 +36,8 @@ func newRootCmd() *cobra.Command {
 	if err != nil {
 		rootCmd := newBaseRootCmd()
 
-		rootCmd.RunE = func(_ *cobra.Command, _ []string) error {
-			return err
+		rootCmd.RunE = func(cmd *cobra.Command, _ []string) error {
+			return writeJSONError(cmd, err)
 		}
 		return rootCmd
 	}

@@ -18,6 +18,9 @@ func newInstallCmd(app *app) *cobra.Command {
 		Use:   "install",
 		Short: "Install local tool integrations",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if wantsJSON(cmd) {
+				return writeJSONError(cmd, fmt.Errorf("%s: subcommand required", cmd.CommandPath()))
+			}
 			return cmd.Help()
 		},
 	}
@@ -36,13 +39,17 @@ func newPIInstallCmd(_ *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path, err := piExtensionPath()
 			if err != nil {
-				return err
+				return writeJSONError(cmd, err)
 			}
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-				return fmt.Errorf("create pi extension directory: %w", err)
+				return writeJSONError(cmd, fmt.Errorf("create pi extension directory: %w", err))
 			}
 			if err := os.WriteFile(path, []byte(piAuthHotReloadExtension), 0o600); err != nil {
-				return fmt.Errorf("write pi auth hot-reload extension: %w", err)
+				return writeJSONError(cmd, fmt.Errorf("write pi auth hot-reload extension: %w", err))
+			}
+
+			if wantsJSON(cmd) {
+				return writeJSONOutput(cmd, map[string]any{"ok": true, "path": path, "reload_command": "/reload"})
 			}
 
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "installed Pi extension to %s\nreload active Pi sessions with /reload\n", path)
@@ -58,25 +65,30 @@ func newOpencodeInstallCmd(_ *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			configDir, err := opencodeConfigDir()
 			if err != nil {
-				return err
+				return writeJSONError(cmd, err)
 			}
 			path, err := opencodePluginPath()
 			if err != nil {
-				return err
+				return writeJSONError(cmd, err)
 			}
 
 			if err := os.MkdirAll(configDir, 0o700); err != nil {
-				return fmt.Errorf("create opencode config directory: %w", err)
+				return writeJSONError(cmd, fmt.Errorf("create opencode config directory: %w", err))
 			}
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-				return fmt.Errorf("create opencode plugin directory: %w", err)
+				return writeJSONError(cmd, fmt.Errorf("create opencode plugin directory: %w", err))
 			}
-			if err := writeOpencodePluginPackage(filepath.Join(configDir, "package.json")); err != nil {
-				return err
+			packagePath := filepath.Join(configDir, "package.json")
+			if err := writeOpencodePluginPackage(packagePath); err != nil {
+				return writeJSONError(cmd, err)
 			}
 
 			if err := os.WriteFile(path, []byte(opencodeShim), 0o600); err != nil {
-				return fmt.Errorf("write opencode plugin shim: %w", err)
+				return writeJSONError(cmd, fmt.Errorf("write opencode plugin shim: %w", err))
+			}
+
+			if wantsJSON(cmd) {
+				return writeJSONOutput(cmd, map[string]any{"ok": true, "path": path, "config_path": packagePath})
 			}
 
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "installed OpenCode plugin to %s\n", path)

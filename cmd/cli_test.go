@@ -9,12 +9,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	statusadapter "github.com/bnema/openai-accounts-cli/internal/adapters/render/status"
 	"github.com/bnema/openai-accounts-cli/internal/application"
 	"github.com/bnema/openai-accounts-cli/internal/domain"
+	"github.com/bnema/openai-accounts-cli/internal/version"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -33,6 +35,66 @@ func TestAuthSetRequiresSecretValueFlag(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "required flag(s) \"secret-value\" not set")
+}
+
+func TestAuthSetRequiredFlagJSONErrorOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	_, stderr, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "api_key",
+		"--secret-key", "openai://acc-1/api_key",
+		"--json",
+	)
+	require.Error(t, err)
+	assert.JSONEq(t, `{"ok":false,"error":"required flag(s) \"secret-value\" not set"}`, stderr)
+}
+
+func TestUnknownCommandJSONErrorOutput(t *testing.T) {
+	home := t.TempDir()
+
+	_, stderr, err := executeCLI(t, home, "nosuch", "--json")
+	require.Error(t, err)
+	assert.JSONEq(t, `{"ok":false,"error":"unknown command \"nosuch\" for \"oa\""}`, stderr)
+}
+
+func TestRootJSONErrorWhenSubcommandMissing(t *testing.T) {
+	home := t.TempDir()
+
+	_, stderr, err := executeCLI(t, home, "--json")
+	require.Error(t, err)
+	assert.JSONEq(t, `{"ok":false,"error":"oa: subcommand required"}`, stderr)
+}
+
+func TestVersionJSONOutput(t *testing.T) {
+	home := t.TempDir()
+
+	stdout, stderr, err := executeCLI(t, home, "version", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, fmt.Sprintf(`{"version":%q}`, version.Version), stdout)
+}
+
+func TestAccountListJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	stdout, stderr, err := executeCLI(t, home, "account", "list", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, `{"accounts":[{"id":"acc-1","name":"Primary"}]}`, stdout)
+}
+
+func TestAccountRemoveJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	stdout, stderr, err := executeCLI(t, home, "account", "remove", "acc-1", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, `{"ok":true,"account_id":"acc-1"}`, stdout)
 }
 
 func TestStatusByAccountHappyPath(t *testing.T) {
@@ -74,6 +136,42 @@ func TestAuthSetThenStatusShowsAuthMethod(t *testing.T) {
 	assert.Contains(t, stdout, "Primary (acc-1)")
 }
 
+func TestAuthSetJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	stdout, stderr, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "api_key",
+		"--secret-key", "openai://acc-1/api_key",
+		"--secret-value", "test-secret-value",
+		"--json",
+	)
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, `{"ok":true,"account_id":"acc-1","method":"api_key","secret_key":"openai://acc-1/api_key"}`, stdout)
+}
+
+func TestAuthRemoveJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "api_key",
+		"--secret-key", "openai://acc-1/api_key",
+		"--secret-value", "test-secret-value",
+	)
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLI(t, home, "auth", "remove", "--account", "acc-1", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, `{"ok":true,"account_id":"acc-1"}`, stdout)
+}
+
 func TestAuthSetAutoAssignsNextNumericAccountID(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeAccountsFixture(home))
@@ -107,6 +205,15 @@ func TestLoginDeviceReturnsNotImplemented(t *testing.T) {
 	_, _, err := executeCLI(t, home, "auth", "login", "device")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not implemented yet")
+}
+
+func TestLoginDeviceJSONErrorOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	_, stderr, err := executeCLI(t, home, "auth", "login", "device", "--json")
+	require.Error(t, err)
+	assert.JSONEq(t, `{"ok":false,"error":"oa auth login device for account 1: not implemented yet"}`, stderr)
 }
 
 func TestLimitCommandIsRemoved(t *testing.T) {
@@ -306,6 +413,15 @@ func TestPiInstallWritesAuthHotReloadExtension(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
+func TestPiInstallJSONOutput(t *testing.T) {
+	home := t.TempDir()
+
+	stdout, stderr, err := executeCLI(t, home, "install", "pi", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, fmt.Sprintf(`{"ok":true,"path":%q,"reload_command":"/reload"}`, filepath.Join(home, ".pi", "agent", "extensions", "oa-auth-hot-reload.ts")), stdout)
+}
+
 func TestOpencodeInstallWritesPluginAndConfig(t *testing.T) {
 	home := t.TempDir()
 
@@ -363,6 +479,21 @@ func TestOpencodeDoctorReportsHealthyInstall(t *testing.T) {
 	assert.Contains(t, stdout, "account repo: ok accounts: 1")
 }
 
+func TestOpencodeDoctorJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+	binDir := writeFakeOABinary(t)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, _, err := executeCLI(t, home, "install", "opencode")
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLI(t, home, "opencode", "doctor", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, `{"checks":[{"name":"plugin","status":"ok","detail":""},{"name":"oa binary","status":"ok","detail":""},{"name":"auth file","status":"missing","detail":""},{"name":"account repo","status":"ok","detail":"accounts: 1"}]}`, stdout)
+}
+
 func TestOpencodeDoctorReportsMissingOABinaryWhenNotOnPATH(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeAccountsFixture(home))
@@ -418,6 +549,121 @@ func TestOpencodeSyncSelectsBestEligibleAccountAndWritesOpenAIAuthEntry(t *testi
 	assert.NotContains(t, string(data), `"codex"`)
 }
 
+func TestOpencodeSyncJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLI(t, home, "sync", "opencode", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, `{"ok":true,"target":"opencode","account_id":"acc-3","account_name":"Best"}`, stdout)
+}
+
+func TestOpencodeSyncAliasJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-333","refresh_token":"refresh-token-333","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLI(t, home, "opencode", "sync", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, `{"ok":true,"target":"opencode","account_id":"acc-3","account_name":"Best"}`, stdout)
+}
+
+func TestOpencodeSyncJSONIncludesFetchWarnings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		switch token {
+		case "good-token":
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":21,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":47,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
+		case "bad-token":
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = fmt.Fprint(w, `{"error":"temporary_failure"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"bad-token","refresh_token":"refresh-token-222","id_token":%q,"expires_at":4102444800}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"good-token","refresh_token":"refresh-token-333","id_token":%q,"expires_at":4102444800}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time {
+			return time.Date(2099, 4, 5, 12, 10, 0, 0, time.UTC)
+		}
+	}, "sync", "opencode", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+
+	var payload struct {
+		OK       bool   `json:"ok"`
+		Target   string `json:"target"`
+		Warnings []struct {
+			AccountID string `json:"account_id"`
+			Error     string `json:"error"`
+		} `json:"warnings"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+	assert.True(t, payload.OK)
+	assert.Equal(t, "opencode", payload.Target)
+	require.Len(t, payload.Warnings, 1)
+	assert.Equal(t, "acc-2", payload.Warnings[0].AccountID)
+	assert.Contains(t, payload.Warnings[0].Error, "fetch usage")
+}
+
 func TestOpencodeSyncForceAccountIDOverridesBestEligibleAccount(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
@@ -449,6 +695,25 @@ func TestOpencodeSyncForceAccountIDOverridesBestEligibleAccount(t *testing.T) {
 	require.NoError(t, readErr)
 	assert.Contains(t, string(data), `"accountId": "chatgpt-account-2"`)
 	assert.NotContains(t, string(data), "chatgpt-account-3")
+}
+
+func TestSyncAllJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSingleSyncAccountFixture(home, "acc-2", "Top Choice"))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"access-token-222","refresh_token":"refresh-token-222","id_token":%q,"expires_at":1890000000}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLI(t, home, "sync", "--all", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, `{"ok":true,"targets":["opencode","codex","pi"],"account_id":"acc-2","account_name":"Top Choice"}`, stdout)
 }
 
 func TestOpencodeSyncForceAccountIDDoesNotFallBackWhenForcedAccountIsUnavailable(t *testing.T) {
@@ -603,6 +868,18 @@ func TestOpencodeInstallSystemdWritesUserUnits(t *testing.T) {
 	assert.Contains(t, string(serviceData), " sync opencode")
 	assert.Contains(t, string(timerData), "OnUnitActiveSec=10m")
 	assert.Contains(t, string(timerData), "WantedBy=timers.target")
+}
+
+func TestOpencodeInstallSystemdJSONOutput(t *testing.T) {
+	home := t.TempDir()
+
+	stdout, stderr, err := executeCLI(t, home, "opencode", "install-systemd", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.JSONEq(t, fmt.Sprintf(`{"ok":true,"unit_dir":%q,"service_path":%q,"timer_path":%q,"timer":"oa-opencode-sync.timer"}`,
+		filepath.Join(home, ".config", "systemd", "user"),
+		filepath.Join(home, ".config", "systemd", "user", "oa-opencode-sync.service"),
+		filepath.Join(home, ".config", "systemd", "user", "oa-opencode-sync.timer")), stdout)
 }
 
 func TestRenderOpencodeSystemdServiceQuotesExecutablePath(t *testing.T) {
@@ -1101,6 +1378,63 @@ func TestUsageCommandJSONOutput(t *testing.T) {
 	assert.Contains(t, stdout, "\"WeeklyLimit\"")
 }
 
+func TestUsageCommandJSONWarnsOnPartialFetchFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		switch token {
+		case "good-token":
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":21,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":47,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
+		case "bad-token":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = fmt.Fprint(w, `{"error":"invalid_token"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", `{"access_token":"bad-token","refresh_token":"","id_token":""}`,
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", `{"access_token":"good-token","refresh_token":"","id_token":""}`,
+	)
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time {
+			return time.Date(2099, 4, 5, 12, 10, 0, 0, time.UTC)
+		}
+	}, "usage", "--json")
+	require.NoError(t, err)
+	assert.True(t, json.Valid([]byte(stdout)))
+
+	var warnings struct {
+		Warnings []struct {
+			AccountID string `json:"account_id"`
+			Error     string `json:"error"`
+		} `json:"warnings"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stderr), &warnings))
+	require.Len(t, warnings.Warnings, 1)
+	assert.Equal(t, "acc-2", warnings.Warnings[0].AccountID)
+	assert.Contains(t, warnings.Warnings[0].Error, "session expired")
+}
+
 func TestUsageCommandPassesSharedRecommendationToRenderer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -1441,7 +1775,7 @@ func executeCLI(t *testing.T, home string, args ...string) (string, string, erro
 	root.SetErr(stderr)
 	root.SetArgs(args)
 
-	executeErr := root.Execute()
+	executeErr := executeRootCommand(root, args)
 	return stdout.String(), stderr.String(), executeErr
 }
 
@@ -1457,7 +1791,7 @@ func executeCLIWithStdin(t *testing.T, home, stdin string, args ...string) (stri
 	root.SetErr(stderr)
 	root.SetArgs(args)
 
-	executeErr := root.Execute()
+	executeErr := executeRootCommand(root, args)
 	return stdout.String(), stderr.String(), executeErr
 }
 
@@ -1478,7 +1812,7 @@ func executeCLIWithHomeAndApp(t *testing.T, home string, configure func(*app), a
 	root.SetErr(stderr)
 	root.SetArgs(args)
 
-	executeErr := root.Execute()
+	executeErr := executeRootCommand(root, args)
 	return stdout.String(), stderr.String(), executeErr
 }
 
@@ -1914,6 +2248,115 @@ func TestAuthCheckReportsOKAfterSuccessfulFetch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "ok")
 	assert.Contains(t, stdout, "acc-1")
+}
+
+func TestAuthCheckJSONOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/wham/usage" {
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":20,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":50,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-1",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-1/oauth_tokens",
+		"--secret-value", `{"access_token":"valid-token","id_token":""}`,
+	)
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLI(t, home, "auth", "check", "--account", "acc-1", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+
+	var payload struct {
+		OK       bool `json:"ok"`
+		Accounts []struct {
+			AccountID string `json:"account_id"`
+			Name      string `json:"name"`
+			OK        bool   `json:"ok"`
+			Message   string `json:"message"`
+		} `json:"accounts"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+	assert.True(t, payload.OK)
+	require.Len(t, payload.Accounts, 1)
+	assert.Equal(t, "acc-1", payload.Accounts[0].AccountID)
+	assert.Equal(t, "Primary", payload.Accounts[0].Name)
+	assert.True(t, payload.Accounts[0].OK)
+	assert.Contains(t, payload.Accounts[0].Message, "data fetched")
+}
+
+func TestAuthCheckJSONFailureIncludesAccountMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		switch token {
+		case "good-token":
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":20,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":50,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
+		case "bad-token":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = fmt.Fprint(w, `{"error":"invalid_token"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", `{"access_token":"bad-token","refresh_token":"","id_token":""}`,
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", `{"access_token":"good-token","refresh_token":"","id_token":""}`,
+	)
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time {
+			return time.Date(2099, 4, 5, 12, 10, 0, 0, time.UTC)
+		}
+	}, "auth", "check", "--json")
+	require.Error(t, err)
+	assert.Empty(t, stderr)
+
+	var payload struct {
+		OK       bool `json:"ok"`
+		Accounts []struct {
+			AccountID string `json:"account_id"`
+			OK        bool   `json:"ok"`
+			Message   string `json:"message"`
+		} `json:"accounts"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+	assert.False(t, payload.OK)
+	require.Len(t, payload.Accounts, 2)
+	assert.Equal(t, "acc-2", payload.Accounts[0].AccountID)
+	assert.False(t, payload.Accounts[0].OK)
+	assert.Contains(t, payload.Accounts[0].Message, "session expired")
+	assert.Equal(t, "acc-3", payload.Accounts[1].AccountID)
+	assert.True(t, payload.Accounts[1].OK)
 }
 
 func TestAuthCheckSkipsNonChatGPTAccount(t *testing.T) {

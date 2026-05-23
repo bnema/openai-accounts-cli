@@ -11,6 +11,12 @@ func newAccountCmd(app *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "account",
 		Short: "Manage accounts",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if wantsJSON(cmd) {
+				return writeJSONError(cmd, fmt.Errorf("%s: subcommand required", cmd.CommandPath()))
+			}
+			return cmd.Help()
+		},
 	}
 
 	cmd.AddCommand(
@@ -28,7 +34,18 @@ func newAccountListCmd(app *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			statuses, err := app.service.GetStatusAll(cmd.Context())
 			if err != nil {
-				return err
+				return writeJSONError(cmd, err)
+			}
+
+			if wantsJSON(cmd) {
+				accounts := make([]map[string]string, 0, len(statuses))
+				for _, status := range statuses {
+					accounts = append(accounts, map[string]string{
+						"id":   string(status.Account.ID),
+						"name": status.Account.Name,
+					})
+				}
+				return writeJSONOutput(cmd, map[string]any{"accounts": accounts})
 			}
 
 			for _, status := range statuses {
@@ -48,7 +65,10 @@ func newAccountRemoveCmd(app *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := domain.AccountID(args[0])
 			if err := app.service.RemoveAccount(cmd.Context(), id); err != nil {
-				return err
+				return writeJSONError(cmd, err)
+			}
+			if wantsJSON(cmd) {
+				return writeJSONOutput(cmd, map[string]any{"ok": true, "account_id": id})
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "account %s removed\n", id)
 			return nil

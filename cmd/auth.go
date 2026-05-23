@@ -11,6 +11,12 @@ func newAuthCmd(app *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
 		Short: "Manage account authentication",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if wantsJSON(cmd) {
+				return writeJSONError(cmd, fmt.Errorf("%s: subcommand required", cmd.CommandPath()))
+			}
+			return cmd.Help()
+		},
 	}
 
 	cmd.AddCommand(newAuthSetCmd(app), newAuthRemoveCmd(app), newLoginCmd(app), newAuthCheckCmd(app))
@@ -30,20 +36,33 @@ func newAuthSetCmd(app *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			authMethod, err := parseAuthMethod(method)
 			if err != nil {
-				return err
+				return writeJSONError(cmd, err)
 			}
 			resolvedAccountID, err := resolveAccountID(cmd.Context(), app, accountID)
 			if err != nil {
-				return err
+				return writeJSONError(cmd, err)
 			}
 
-			return app.service.SetAuth(
+			if err := app.service.SetAuth(
 				cmd.Context(),
 				resolvedAccountID,
 				authMethod,
 				secretKey,
 				secretValue,
-			)
+			); err != nil {
+				return writeJSONError(cmd, err)
+			}
+
+			if wantsJSON(cmd) {
+				return writeJSONOutput(cmd, map[string]any{
+					"ok":         true,
+					"account_id": resolvedAccountID,
+					"method":     authMethod,
+					"secret_key": secretKey,
+				})
+			}
+
+			return nil
 		},
 	}
 
@@ -65,7 +84,13 @@ func newAuthRemoveCmd(app *app) *cobra.Command {
 		Use:   "remove",
 		Short: "Remove account authentication",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return app.service.RemoveAuth(cmd.Context(), domain.AccountID(accountID))
+			if err := app.service.RemoveAuth(cmd.Context(), domain.AccountID(accountID)); err != nil {
+				return writeJSONError(cmd, err)
+			}
+			if wantsJSON(cmd) {
+				return writeJSONOutput(cmd, map[string]any{"ok": true, "account_id": accountID})
+			}
+			return nil
 		},
 	}
 

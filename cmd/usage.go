@@ -23,7 +23,6 @@ var refreshLocks sync.Map
 
 func newUsageCmd(app *app) *cobra.Command {
 	var accountID string
-	var asJSON bool
 
 	cmd := &cobra.Command{
 		Use:     "usage",
@@ -31,12 +30,14 @@ func newUsageCmd(app *app) *cobra.Command {
 		Short:   "Fetch and display account usage limits",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runUsageFetch(cmd, app, accountID, asJSON)
+			if err := runUsageFetch(cmd, app, accountID, wantsJSON(cmd)); err != nil {
+				return writeJSONError(cmd, err)
+			}
+			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&accountID, "account", "", "Account ID (default: all accounts)")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Render JSON output")
 
 	return cmd
 }
@@ -85,6 +86,34 @@ type fetchResult struct {
 	err       error
 }
 
+type fetchSummary struct {
+	successes []domain.AccountID
+	failures  []fetchResult
+}
+
+func (s fetchSummary) hasFailures() bool {
+	return len(s.failures) > 0
+}
+
+func (s fetchSummary) failurePayload() []map[string]string {
+	payload := make([]map[string]string, 0, len(s.failures))
+	for _, failure := range s.failures {
+		payload = append(payload, map[string]string{
+			"account_id": string(failure.accountID),
+			"error":      failure.err.Error(),
+		})
+	}
+	return payload
+}
+
+func (s fetchSummary) errorByAccountID() map[domain.AccountID]string {
+	out := make(map[domain.AccountID]string, len(s.failures))
+	for _, failure := range s.failures {
+		out[failure.accountID] = failure.err.Error()
+	}
+	return out
+}
+
 func runUsageFetch(cmd *cobra.Command, app *app, accountID string, asJSON bool) error {
 	statuses, err := loadStatuses(cmd, app.service, accountID)
 	if err != nil {
@@ -93,11 +122,19 @@ func runUsageFetch(cmd *cobra.Command, app *app, accountID string, asJSON bool) 
 
 	chatgptAccounts := filterChatGPTAccounts(statuses)
 
+	var summary fetchSummary
 	fetchCmd := func(ctx context.Context) error {
 		if len(chatgptAccounts) == 0 {
+			summary = fetchSummary{}
 			return nil
 		}
-		return fetchAccountsConcurrently(ctx, app, chatgptAccounts, cmd.ErrOrStderr())
+
+		result, err := fetchAccountsConcurrently(ctx, app, chatgptAccounts)
+		summary = result
+		if !asJSON {
+			writeFetchSummaryPlain(cmd.ErrOrStderr(), result)
+		}
+		return err
 	}
 
 	if asJSON {
@@ -113,6 +150,12 @@ func runUsageFetch(cmd *cobra.Command, app *app, accountID string, asJSON bool) 
 	updated, err := loadStatuses(cmd, app.service, accountID)
 	if err != nil {
 		return err
+	}
+
+	if asJSON && summary.hasFailures() {
+		if err := json.NewEncoder(cmd.ErrOrStderr()).Encode(map[string]any{"warnings": summary.failurePayload()}); err != nil {
+			return err
+		}
 	}
 
 	recommendation := application.RecommendationResult{}
@@ -136,7 +179,7 @@ func filterChatGPTAccounts(statuses []application.Status) []domain.Account {
 	return accounts
 }
 
-func fetchAccountsConcurrently(ctx context.Context, app *app, accounts []domain.Account, errWriter io.Writer) error {
+func fetchAccountsConcurrently(ctx context.Context, app *app, accounts []domain.Account) (fetchSummary, error) {
 	const maxConcurrent = 5
 	results := make(chan fetchResult, len(accounts))
 	semaphore := make(chan struct{}, maxConcurrent)
@@ -166,36 +209,42 @@ func fetchAccountsConcurrently(ctx context.Context, app *app, accounts []domain.
 		close(results)
 	}()
 
-	var successes []domain.AccountID
-	var failures []fetchResult
+	summary := fetchSummary{
+		successes: make([]domain.AccountID, 0, len(accounts)),
+		failures:  make([]fetchResult, 0, len(accounts)),
+	}
 
 	for result := range results {
 		if result.err == nil {
-			successes = append(successes, result.accountID)
+			summary.successes = append(summary.successes, result.accountID)
 		} else {
-			failures = append(failures, result)
+			summary.failures = append(summary.failures, result)
 		}
 	}
 
-	if len(failures) > 0 {
-		fmt.Fprintln(errWriter, "\nFailed to fetch:")
-		for _, failure := range failures {
-			fmt.Fprintf(errWriter, "  - %v\n", failure.err)
-		}
-	}
-
-	if len(failures) == len(accounts) {
+	if len(summary.failures) == len(accounts) {
 		if len(accounts) == 1 {
-			return failures[0].err
+			return summary, summary.failures[0].err
 		}
-		return fmt.Errorf("all accounts failed to fetch")
+		return summary, fmt.Errorf("all accounts failed to fetch")
 	}
 
-	if len(successes) > 0 && len(failures) > 0 {
-		fmt.Fprintf(errWriter, "\n%d/%d accounts updated successfully\n", len(successes), len(accounts))
+	return summary, nil
+}
+
+func writeFetchSummaryPlain(errWriter io.Writer, summary fetchSummary) {
+	if errWriter == nil || !summary.hasFailures() {
+		return
 	}
 
-	return nil
+	fmt.Fprintln(errWriter, "\nFailed to fetch:")
+	for _, failure := range summary.failures {
+		fmt.Fprintf(errWriter, "  - %v\n", failure.err)
+	}
+
+	if len(summary.successes) > 0 {
+		fmt.Fprintf(errWriter, "\n%d/%d accounts updated successfully\n", len(summary.successes), len(summary.successes)+len(summary.failures))
+	}
 }
 
 func fetchAndPersistLimits(ctx context.Context, app *app, account domain.Account) error {
