@@ -7,15 +7,12 @@ Item {
     property var pluginApi: null
     property var service
 
-    service: OAAccountsService {
-        id: serviceInstance
-    }
-
     Component.onCompleted: {
         if (pluginApi)
             service.start(pluginApi);
 
     }
+
     IpcHandler {
         function togglePanel() {
             if (!pluginApi || !pluginApi.withCurrentScreen)
@@ -35,6 +32,10 @@ Item {
         }
 
         target: "plugin:oa-accounts"
+    }
+
+    service: OAAccountsService {
+        id: serviceInstance
     }
 
 }

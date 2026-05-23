@@ -13,28 +13,30 @@ Item {
     readonly property bool allowAttach: true
     property real contentPreferredWidth: 420 * Style.uiScaleRatio
     property real contentPreferredHeight: Math.min(680 * Style.uiScaleRatio, panelContent.implicitHeight + Style.marginL * 2)
-
-    function formatPercent(limit) {
-        if (!limit)
-            return "—";
-
-        return `${Math.round(limit.percent_remaining)}% remaining`;
-    }
-
-    function formatReset(limit) {
-        if (!limit || !limit.resets_at)
-            return "reset unknown";
-
-        const at = new Date(limit.resets_at);
-        return isNaN(at.getTime()) ? "reset unknown" : `resets ${at.toLocaleString()}`;
-    }
+    property double nowMs: Date.now()
 
     function formatUpdated(value) {
         if (!value)
-            return "never";
+            return "Updated never";
 
         const at = new Date(value);
-        return isNaN(at.getTime()) ? "never" : at.toLocaleString();
+        if (isNaN(at.getTime()))
+            return "Updated never";
+
+        const deltaMs = Math.max(0, root.nowMs - at.getTime());
+        const deltaMinutes = Math.floor(deltaMs / 60000);
+        if (deltaMinutes < 1)
+            return "Updated just now";
+
+        if (deltaMinutes < 60)
+            return `Updated ${deltaMinutes} minute${deltaMinutes === 1 ? "" : "s"} ago`;
+
+        const deltaHours = Math.floor(deltaMinutes / 60);
+        if (deltaHours < 24)
+            return `Updated ${deltaHours} hour${deltaHours === 1 ? "" : "s"} ago`;
+
+        const deltaDays = Math.floor(deltaHours / 24);
+        return `Updated ${deltaDays} day${deltaDays === 1 ? "" : "s"} ago`;
     }
 
     function hasRenewableSubscription(account) {
@@ -53,6 +55,21 @@ Item {
     }
 
     anchors.fill: parent
+
+    Timer {
+        interval: 60000
+        running: true
+        repeat: true
+        onTriggered: root.nowMs = Date.now()
+    }
+
+    Connections {
+        function onLastUpdatedChanged() {
+            root.nowMs = Date.now();
+        }
+
+        target: service
+    }
 
     Rectangle {
         id: panelContainer
@@ -94,7 +111,7 @@ Item {
                             }
 
                             NText {
-                                text: service && service.loading ? "Refreshing snapshot…" : `Updated ${root.formatUpdated(service ? service.lastUpdated : "")}`
+                                text: service && service.loading ? "Refreshing snapshot…" : root.formatUpdated(service ? service.lastUpdated : "")
                                 pointSize: Style.fontSizeS
                                 color: Color.mOnSurfaceVariant
                             }
@@ -357,21 +374,25 @@ Item {
                                     color: Color.mOnSurfaceVariant
                                 }
 
-                                NText {
-                                    text: `Daily: ${root.formatPercent(modelData.daily)} • ${root.formatReset(modelData.daily)}`
-                                    pointSize: Style.fontSizeS
-                                    color: Color.mOnSurface
+                                LimitBar {
+                                    Layout.fillWidth: true
+                                    label: "Daily"
+                                    limitData: modelData.daily
+                                    accentColor: Color.mPrimary
                                 }
 
-                                NText {
-                                    text: `Weekly: ${root.formatPercent(modelData.weekly)} • ${root.formatReset(modelData.weekly)}`
-                                    pointSize: Style.fontSizeS
-                                    color: Color.mOnSurface
+                                LimitBar {
+                                    Layout.fillWidth: true
+                                    label: "Weekly"
+                                    limitData: modelData.weekly
+                                    accentColor: Color.mSecondary
                                 }
 
                                 NText {
                                     visible: !!modelData.subscription
+                                    Layout.fillWidth: true
                                     text: modelData.subscription ? `Subscription until ${root.formatUpdated(modelData.subscription.active_until)}` : ""
+                                    wrapMode: Text.Wrap
                                     pointSize: Style.fontSizeS
                                     color: Color.mOnSurfaceVariant
                                 }
