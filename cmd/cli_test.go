@@ -87,6 +87,136 @@ func TestAccountListJSONOutput(t *testing.T) {
 	assert.JSONEq(t, `{"accounts":[{"id":"acc-1","name":"Primary"}]}`, stdout)
 }
 
+func TestNoctaliaSnapshotJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	stdout, stderr, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time {
+			return time.Date(2099, 4, 5, 12, 10, 0, 0, time.UTC)
+		}
+	}, "noctalia", "snapshot", "--json")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+
+	var payload struct {
+		SchemaVersion  int      `json:"schema_version"`
+		RefreshCommand []string `json:"refresh_command"`
+		Recommendation struct {
+			Available   bool   `json:"available"`
+			AccountID   string `json:"account_id"`
+			AccountName string `json:"account_name"`
+			Rank        int    `json:"rank"`
+		} `json:"recommendation"`
+		Accounts []struct {
+			ID             string `json:"id"`
+			Name           string `json:"name"`
+			AuthConfigured bool   `json:"auth_configured"`
+			Recommendation struct {
+				Selected bool `json:"selected"`
+				Eligible bool `json:"eligible"`
+				Rank     int  `json:"rank"`
+			} `json:"recommendation"`
+			Daily *struct {
+				PercentUsed float64 `json:"percent_used"`
+			} `json:"daily"`
+		} `json:"accounts"`
+		SyncTargets []struct {
+			ID      string   `json:"id"`
+			Command []string `json:"command"`
+		} `json:"sync_targets"`
+		Warnings []any `json:"warnings"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+	assert.Equal(t, 1, payload.SchemaVersion)
+	assert.Equal(t, []string{"noctalia", "snapshot", "--json", "--refresh"}, payload.RefreshCommand)
+	assert.True(t, payload.Recommendation.Available)
+	assert.Equal(t, "acc-3", payload.Recommendation.AccountID)
+	assert.Equal(t, "Best", payload.Recommendation.AccountName)
+	assert.Equal(t, 1, payload.Recommendation.Rank)
+	require.Len(t, payload.Accounts, 3)
+	assert.Equal(t, "acc-1", payload.Accounts[0].ID)
+	assert.False(t, payload.Accounts[0].AuthConfigured)
+	assert.Equal(t, "acc-3", payload.Accounts[2].ID)
+	assert.True(t, payload.Accounts[2].Recommendation.Selected)
+	assert.True(t, payload.Accounts[2].Recommendation.Eligible)
+	assert.Equal(t, 1, payload.Accounts[2].Recommendation.Rank)
+	require.NotNil(t, payload.Accounts[2].Daily)
+	assert.Equal(t, 15.0, payload.Accounts[2].Daily.PercentUsed)
+	require.Len(t, payload.SyncTargets, 4)
+	assert.Equal(t, "opencode", payload.SyncTargets[0].ID)
+	assert.Equal(t, []string{"sync", "opencode", "--json"}, payload.SyncTargets[0].Command)
+	assert.Equal(t, "all", payload.SyncTargets[3].ID)
+	assert.Equal(t, []string{"sync", "--all", "--json"}, payload.SyncTargets[3].Command)
+	assert.Empty(t, payload.Warnings)
+}
+
+func TestNoctaliaSnapshotRefreshJSONIncludesWarnings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		switch {
+		case r.URL.Path == "/wham/usage" && token == "good-token":
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":21,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":47,"limit_window_seconds":604800,"reset_at":1893888000}}}`)
+		case r.URL.Path == "/wham/usage" && token == "bad-token":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = fmt.Fprint(w, `{"error":"invalid_token"}`)
+		case strings.HasPrefix(r.URL.Path, "/subscriptions") && token == "good-token":
+			_, _ = fmt.Fprint(w, `{"plan_type":"pro","active_start":"2099-04-01T00:00:00Z","active_until":"2099-05-01T00:00:00Z","will_renew":true,"billing_period":"monthly","billing_currency":"USD","is_delinquent":false}`)
+		case strings.HasPrefix(r.URL.Path, "/subscriptions") && token == "bad-token":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = fmt.Fprint(w, `{"error":"invalid_token"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("OA_USAGE_BASE_URL", server.URL)
+
+	home := t.TempDir()
+	require.NoError(t, writeOpencodeSyncAccountsFixture(home))
+
+	_, _, err := executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-2",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-2/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"bad-token","refresh_token":"refresh-token-222","id_token":%q,"expires_at":4102444800}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-2"}`)),
+	)
+	require.NoError(t, err)
+	_, _, err = executeCLI(t, home,
+		"auth", "set",
+		"--account", "acc-3",
+		"--method", "chatgpt",
+		"--secret-key", "openai://acc-3/oauth_tokens",
+		"--secret-value", fmt.Sprintf(`{"access_token":"good-token","refresh_token":"refresh-token-333","id_token":%q,"expires_at":4102444800}`, fakeJWT(`{"chatgpt_account_id":"chatgpt-account-3"}`)),
+	)
+	require.NoError(t, err)
+
+	stdout, stderr, err := executeCLIWithHomeAndApp(t, home, func(app *app) {
+		app.now = func() time.Time {
+			return time.Date(2099, 4, 5, 12, 10, 0, 0, time.UTC)
+		}
+	}, "noctalia", "snapshot", "--json", "--refresh")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+
+	var payload struct {
+		Recommendation struct {
+			AccountID string `json:"account_id"`
+		} `json:"recommendation"`
+		Warnings []struct {
+			AccountID string `json:"account_id"`
+			Message   string `json:"message"`
+		} `json:"warnings"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+	assert.Equal(t, "acc-3", payload.Recommendation.AccountID)
+	require.Len(t, payload.Warnings, 1)
+	assert.Equal(t, "acc-2", payload.Warnings[0].AccountID)
+	assert.Contains(t, payload.Warnings[0].Message, "refresh oauth tokens")
+}
+
 func TestAccountRemoveJSONOutput(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeAccountsFixture(home))

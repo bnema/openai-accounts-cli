@@ -56,6 +56,7 @@ func newRootCmdWithApp(app *app) *cobra.Command {
 		newSyncCmd(app),
 		newInstallCmd(app),
 		newHandleCmd(app),
+		newNoctaliaCmd(app),
 		newOpencodeCmd(app),
 	)
 
