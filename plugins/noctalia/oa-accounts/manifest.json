@@ -1,0 +1,30 @@
+{
+  "id": "oa-accounts",
+  "name": "OpenAI Accounts",
+  "version": "0.1.0",
+  "minNoctaliaVersion": "3.6.0",
+  "author": "Brice / oa",
+  "license": "MIT",
+  "repository": "https://github.com/bnema/openai-accounts-cli",
+  "description": "Show the recommended oa account and trigger sync actions from Noctalia.",
+  "tags": [
+    "Bar",
+    "Panel",
+    "Development"
+  ],
+  "entryPoints": {
+    "main": "Main.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml"
+  },
+  "dependencies": {
+    "plugins": []
+  },
+  "metadata": {
+    "defaultSettings": {
+      "binaryPath": "oa",
+      "refreshIntervalSeconds": 300,
+      "refreshOnLoad": true
+    }
+  }
+}

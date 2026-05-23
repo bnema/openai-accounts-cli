@@ -20,7 +20,7 @@ Use it to keep multiple OpenAI accounts in one place, inspect their ChatGPT limi
 ```bash
 go install github.com/bnema/openai-accounts-cli/cmd/oa@latest
 # or from a clone
-make install
+go install ./cmd/oa
 ```
 
 ## Commands
@@ -137,10 +137,25 @@ oa sync --all --evenly
 | `OA_AUTH_LISTEN` | `127.0.0.1:1455` | Local callback listener |
 | `OA_USAGE_BASE_URL` | `https://chatgpt.com/backend-api` | Usage API base URL |
 
+## Noctalia plugin
+
+A local Noctalia plugin lives at `plugins/noctalia/oa-accounts`.
+
+Install it locally from the repository root:
+
+```bash
+go install ./cmd/oa
+mkdir -p ~/.config/noctalia/plugins
+PLUGIN_DIR="$(realpath plugins/noctalia/oa-accounts)"
+ln -sfn "$PLUGIN_DIR" ~/.config/noctalia/plugins/oa-accounts
+```
+
+Then restart or reload Noctalia, enable **OpenAI Accounts** in the plugin manager if needed, and add its bar widget.
+
 ## Development
 
 ```bash
+go build -o oa ./cmd/oa
+go install ./cmd/oa
 go test ./...
-make build
-make install
 ```

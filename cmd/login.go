@@ -13,6 +13,12 @@ func newLoginCmd(app *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Start account login flows",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if wantsJSON(cmd) {
+				return writeJSONError(cmd, fmt.Errorf("%s: subcommand required", cmd.CommandPath()))
+			}
+			return cmd.Help()
+		},
 	}
 
 	cmd.AddCommand(newLoginBrowserCmd(app), newLoginDeviceCmd(app))
@@ -29,7 +35,7 @@ func newLoginBrowserCmd(app *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			resolvedAccountID, err := resolveAccountID(cmd.Context(), app, accountID)
 			if err != nil {
-				return err
+				return writeJSONError(cmd, err)
 			}
 			return runBrowserLogin(cmd, app, resolvedAccountID)
 		},
@@ -49,9 +55,9 @@ func newLoginDeviceCmd(app *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			resolvedAccountID, err := resolveAccountID(cmd.Context(), app, accountID)
 			if err != nil {
-				return err
+				return writeJSONError(cmd, err)
 			}
-			return fmt.Errorf("%s for account %s: %w", cmd.CommandPath(), resolvedAccountID, errNotImplementedYet)
+			return writeJSONError(cmd, fmt.Errorf("%s for account %s: %w", cmd.CommandPath(), resolvedAccountID, errNotImplementedYet))
 		},
 	}
 
@@ -63,16 +69,16 @@ func newLoginDeviceCmd(app *app) *cobra.Command {
 func runBrowserLogin(cmd *cobra.Command, app *app, accountID domain.AccountID) error {
 	pkce, err := authadapter.NewPKCEPair()
 	if err != nil {
-		return fmt.Errorf("generate pkce: %w", err)
+		return writeJSONError(cmd, fmt.Errorf("generate pkce: %w", err))
 	}
 	state, err := authadapter.NewState()
 	if err != nil {
-		return fmt.Errorf("generate oauth state: %w", err)
+		return writeJSONError(cmd, fmt.Errorf("generate oauth state: %w", err))
 	}
 
 	server, err := authadapter.StartCallbackServer(app.browserLogin.ListenAddr, state)
 	if err != nil {
-		return fmt.Errorf("start callback server: %w", err)
+		return writeJSONError(cmd, fmt.Errorf("start callback server: %w", err))
 	}
 
 	authURL, err := authadapter.BuildAuthorizationURL(authadapter.AuthorizationRequest{
@@ -85,14 +91,20 @@ func runBrowserLogin(cmd *cobra.Command, app *app, accountID domain.AccountID) e
 	})
 	if err != nil {
 		_ = server.Close()
-		return fmt.Errorf("build authorization url: %w", err)
+		return writeJSONError(cmd, fmt.Errorf("build authorization url: %w", err))
 	}
 
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Open this URL to authenticate account %s:\n%s\n", accountID, authURL)
+	if wantsJSON(cmd) {
+		if err := writeCompactJSONOutput(cmd, map[string]any{"event": "authorization_url", "account_id": accountID, "url": authURL}); err != nil {
+			return err
+		}
+	} else {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Open this URL to authenticate account %s:\n%s\n", accountID, authURL)
+	}
 
 	code, err := server.WaitForCode(app.browserLogin.Timeout)
 	if err != nil {
-		return fmt.Errorf("wait for oauth callback: %w", err)
+		return writeJSONError(cmd, fmt.Errorf("wait for oauth callback: %w", err))
 	}
 
 	tokens, err := authadapter.ExchangeCodeForTokens(http.DefaultClient, authadapter.TokenExchangeRequest{
@@ -103,7 +115,7 @@ func runBrowserLogin(cmd *cobra.Command, app *app, accountID domain.AccountID) e
 		CodeVerifier: pkce.Verifier,
 	})
 	if err != nil {
-		return fmt.Errorf("exchange code for tokens: %w", err)
+		return writeJSONError(cmd, fmt.Errorf("exchange code for tokens: %w", err))
 	}
 
 	secretValue, err := encodeOAuthTokens(withCalculatedExpiry(oauthTokens{
@@ -114,12 +126,16 @@ func runBrowserLogin(cmd *cobra.Command, app *app, accountID domain.AccountID) e
 		ExpiresIn:    tokens.ExpiresIn,
 	}, app.now()))
 	if err != nil {
-		return err
+		return writeJSONError(cmd, err)
 	}
 
 	secretKey := fmt.Sprintf("openai://%s/oauth_tokens", accountID)
 	if err := app.service.SetAuth(cmd.Context(), accountID, domain.AuthMethodChatGPT, secretKey, secretValue); err != nil {
-		return fmt.Errorf("save account oauth auth: %w", err)
+		return writeJSONError(cmd, fmt.Errorf("save account oauth auth: %w", err))
+	}
+
+	if wantsJSON(cmd) {
+		return writeCompactJSONOutput(cmd, map[string]any{"event": "authenticated", "account_id": accountID})
 	}
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Authenticated account %s\n", accountID)

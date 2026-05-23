@@ -14,6 +14,7 @@ import (
 type syncTokenWriter func(app *app, tokens oauthTokens) error
 
 type syncTargetTokenWriter struct {
+	id    string
 	name  string
 	write syncTokenWriter
 }
@@ -44,9 +45,15 @@ func newSyncCmd(app *app) *cobra.Command {
 		Short: "Sync ChatGPT OAuth auth into local tools",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !all {
+				if wantsJSON(cmd) {
+					return writeJSONError(cmd, fmt.Errorf("%s: --all or a target subcommand is required", cmd.CommandPath()))
+				}
 				return cmd.Help()
 			}
-			return syncAllTargets(cmd, app, flags.options())
+			if err := syncAllTargets(cmd, app, flags.options()); err != nil {
+				return writeJSONError(cmd, err)
+			}
+			return nil
 		},
 	}
 
@@ -68,7 +75,7 @@ func newSyncCodexCmd(app *app, flags *syncFlags) *cobra.Command {
 		Use:   "codex",
 		Short: "Sync Codex auth",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return syncSingleTarget(cmd, app, flags.options(), "Codex", writeOAuthTokensToCodex)
+			return writeJSONError(cmd, syncSingleTarget(cmd, app, flags.options(), "codex", "Codex", writeOAuthTokensToCodex))
 		},
 	}
 }
@@ -79,13 +86,13 @@ func newSyncPICmd(app *app, flags *syncFlags) *cobra.Command {
 		Aliases: []string{"pi-mono"},
 		Short:   "Sync Pi auth",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return syncSingleTarget(cmd, app, flags.options(), "Pi", writeOAuthTokensToPI)
+			return writeJSONError(cmd, syncSingleTarget(cmd, app, flags.options(), "pi", "Pi", writeOAuthTokensToPI))
 		},
 	}
 }
 
-func syncSingleTarget(cmd *cobra.Command, app *app, options syncOptions, targetName string, writer syncTokenWriter) error {
-	tokens, status, err := loadTokensForSync(cmd, app, options)
+func syncSingleTarget(cmd *cobra.Command, app *app, options syncOptions, targetID, targetName string, writer syncTokenWriter) error {
+	tokens, status, summary, err := loadTokensForSync(cmd, app, options)
 	if err != nil {
 		return err
 	}
@@ -98,21 +105,36 @@ func syncSingleTarget(cmd *cobra.Command, app *app, options syncOptions, targetN
 		}
 	}
 
+	if wantsJSON(cmd) {
+		payload := map[string]any{
+			"ok":           true,
+			"target":       targetID,
+			"account_id":   status.Account.ID,
+			"account_name": status.Account.Name,
+		}
+		if summary.hasFailures() {
+			payload["warnings"] = summary.failurePayload()
+		}
+		return writeJSONOutput(cmd, payload)
+	}
+
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "synced %s auth for %s (%s)\n", targetName, status.Account.Name, status.Account.ID)
 	return err
 }
 
-func loadTokensForSync(cmd *cobra.Command, app *app, options syncOptions) (oauthTokens, application.Status, error) {
+func loadTokensForSync(cmd *cobra.Command, app *app, options syncOptions) (oauthTokens, application.Status, fetchSummary, error) {
 	if options.forceAccountID != "" {
-		return loadOAuthTokensForAccount(cmd.Context(), app, options.forceAccountID)
+		tokens, status, err := loadOAuthTokensForAccount(cmd.Context(), app, options.forceAccountID)
+		return tokens, status, fetchSummary{}, err
 	}
 
-	ranked, err := freshRankedSyncAccounts(cmd, app, options.evenly)
+	ranked, summary, err := freshRankedSyncAccounts(cmd, app, options.evenly)
 	if err != nil {
-		return oauthTokens{}, application.Status{}, err
+		return oauthTokens{}, application.Status{}, summary, err
 	}
 
-	return loadTokensForAvailableAccount(cmd, app, ranked)
+	tokens, status, err := loadTokensForAvailableAccount(cmd, app, ranked)
+	return tokens, status, summary, err
 }
 
 func loadTokensForAvailableAccount(cmd *cobra.Command, app *app, ranked []application.Status) (oauthTokens, application.Status, error) {
@@ -142,36 +164,47 @@ func noUsableSyncAccountError(syncErr error) error {
 	return fmt.Errorf("%w: %s", application.ErrNoEligibleSyncAccount, syncErr.Error())
 }
 
-func freshRankedSyncAccounts(cmd *cobra.Command, app *app, evenly bool) ([]application.Status, error) {
-	if err := refreshSyncUsageCaches(cmd, app); err != nil {
-		return nil, err
+func freshRankedSyncAccounts(cmd *cobra.Command, app *app, evenly bool) ([]application.Status, fetchSummary, error) {
+	summary, err := refreshSyncUsageCaches(cmd, app)
+	if err != nil {
+		return nil, summary, err
 	}
 
 	ranked, err := app.service.RankSyncAccounts(cmd.Context())
 	if err != nil {
-		return nil, err
+		return nil, summary, err
 	}
 	if evenly {
 		ranked, err = app.service.RebalanceStatusesEvenly(cmd.Context(), ranked)
 		if err != nil {
-			return nil, err
+			return nil, summary, err
 		}
 	}
 
-	return ranked, nil
+	return ranked, summary, nil
 }
 
-func refreshSyncUsageCaches(cmd *cobra.Command, app *app) error {
+func refreshSyncUsageCaches(cmd *cobra.Command, app *app) (fetchSummary, error) {
 	statuses, err := app.service.GetStatusAll(cmd.Context())
 	if err != nil {
-		return err
+		return fetchSummary{}, err
 	}
 
-	return fetchAccountsConcurrently(cmd.Context(), app, filterChatGPTAccounts(statuses), cmd.ErrOrStderr())
+	summary, err := fetchAccountsConcurrently(cmd.Context(), app, filterChatGPTAccounts(statuses))
+	if !wantsJSON(cmd) {
+		if writeErr := writeFetchSummaryPlain(cmd.ErrOrStderr(), summary); writeErr != nil {
+			if err != nil {
+				return summary, errors.Join(err, fmt.Errorf("write fetch summary: %w", writeErr))
+			}
+			return summary, fmt.Errorf("write fetch summary: %w", writeErr)
+		}
+	}
+
+	return summary, err
 }
 
 func syncAllTargets(cmd *cobra.Command, app *app, options syncOptions) error {
-	tokens, status, err := loadTokensForSync(cmd, app, options)
+	tokens, status, summary, err := loadTokensForSync(cmd, app, options)
 	if err != nil {
 		return err
 	}
@@ -187,30 +220,49 @@ func syncAllTargets(cmd *cobra.Command, app *app, options syncOptions) error {
 		}
 	}
 
-	for _, targetName := range syncedTargets {
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "synced %s auth for %s (%s)\n", targetName, status.Account.Name, status.Account.ID); err != nil {
+	if wantsJSON(cmd) {
+		targets := make([]string, 0, len(syncedTargets))
+		for _, target := range syncedTargets {
+			targets = append(targets, target.id)
+		}
+		payload := map[string]any{
+			"ok":           true,
+			"targets":      targets,
+			"account_id":   status.Account.ID,
+			"account_name": status.Account.Name,
+		}
+		if summary.hasFailures() {
+			payload["warnings"] = summary.failurePayload()
+		}
+		return writeJSONOutput(cmd, payload)
+	}
+
+	for _, target := range syncedTargets {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "synced %s auth for %s (%s)\n", target.name, status.Account.Name, status.Account.ID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func writeOAuthTokensToAllTargets(app *app, tokens oauthTokens) ([]string, error) {
+func writeOAuthTokensToAllTargets(app *app, tokens oauthTokens) ([]syncTargetTokenWriter, error) {
 	targets := []syncTargetTokenWriter{
-		{name: "OpenCode", write: writeOAuthTokensToOpencode},
-		{name: "Codex", write: writeOAuthTokensToCodex},
-		{name: "Pi", write: writeOAuthTokensToPI},
+		{id: "opencode", name: "OpenCode", write: writeOAuthTokensToOpencode},
+		{id: "codex", name: "Codex", write: writeOAuthTokensToCodex},
+		{id: "pi", name: "Pi", write: writeOAuthTokensToPI},
 	}
 
-	synced := make([]string, 0, len(targets))
+	synced := make([]syncTargetTokenWriter, 0, len(targets))
+	syncedNames := make([]string, 0, len(targets))
 	for _, target := range targets {
 		if err := target.write(app, tokens); err != nil {
 			if len(synced) > 0 {
-				return synced, fmt.Errorf("partial sync failure: synced %s; %s failed: %w", strings.Join(synced, ", "), target.name, err)
+				return synced, fmt.Errorf("partial sync failure: synced %s; %s failed: %w", strings.Join(syncedNames, ", "), target.name, err)
 			}
 			return synced, fmt.Errorf("%s failed: %w", target.name, err)
 		}
-		synced = append(synced, target.name)
+		synced = append(synced, target)
+		syncedNames = append(syncedNames, target.name)
 	}
 
 	return synced, nil

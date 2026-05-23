@@ -12,6 +12,10 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if wantsJSON(cmd) {
+				return writeJSONOutput(cmd, map[string]string{"version": version.Version})
+			}
+
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), version.Version)
 			return err
 		},

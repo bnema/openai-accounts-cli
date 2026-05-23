@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -27,35 +28,63 @@ func newAuthCheckCmd(app *app) *cobra.Command {
 }
 
 func runAuthCheck(cmd *cobra.Command, app *app, accountID string) error {
+	if wantsJSON(cmd) {
+		cmd.Root().SilenceErrors = true
+	}
+
 	statuses, err := loadStatuses(cmd, app.service, accountID)
 	if err != nil {
-		return err
+		return writeJSONError(cmd, err)
 	}
 
 	accounts := filterChatGPTAccounts(statuses)
 	if len(accounts) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "no ChatGPT accounts to check")
+		if wantsJSON(cmd) {
+			return writeJSONOutput(cmd, map[string]any{"ok": true, "accounts": []any{}})
+		}
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), "no ChatGPT accounts to check"); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
 		return nil
 	}
 
 	// Snapshot CapturedAt before fetch to detect which accounts actually updated.
 	beforeFetch := capturedAtSnapshot(statuses)
 
+	var summary fetchSummary
 	fetchFn := func(ctx context.Context) error {
-		return fetchAccountsConcurrently(ctx, app, accounts, cmd.ErrOrStderr())
+		result, err := fetchAccountsConcurrently(ctx, app, accounts)
+		summary = result
+		if !wantsJSON(cmd) {
+			if writeErr := writeFetchSummaryPlain(cmd.ErrOrStderr(), result); writeErr != nil {
+				if err != nil {
+					return errors.Join(err, fmt.Errorf("write fetch summary: %w", writeErr))
+				}
+				return fmt.Errorf("write fetch summary: %w", writeErr)
+			}
+		}
+		return err
 	}
 
-	if err := runUsageFetchSpinner(cmd.Context(), cmd.ErrOrStderr(), "Checking auth...", fetchFn); err != nil {
-		return err
+	if wantsJSON(cmd) {
+		if err := fetchFn(cmd.Context()); err != nil {
+			return writeJSONError(cmd, err)
+		}
+	} else {
+		if err := runUsageFetchSpinner(cmd.Context(), cmd.ErrOrStderr(), "Checking auth...", fetchFn); err != nil {
+			return err
+		}
 	}
 
 	updated, err := loadStatuses(cmd, app.service, accountID)
 	if err != nil {
-		return err
+		return writeJSONError(cmd, err)
 	}
 
 	now := app.now()
 	var hasFailure bool
+	failureMessages := summary.errorByAccountID()
+	jsonAccounts := make([]map[string]any, 0, len(updated))
 	for _, status := range updated {
 		if status.Account.Auth.Method != domain.AuthMethodChatGPT {
 			continue
@@ -68,13 +97,49 @@ func runAuthCheck(cmd *cobra.Command, app *app, accountID string) error {
 
 		if !didFetchSucceed(status, beforeFetch) {
 			hasFailure = true
+			if wantsJSON(cmd) {
+				message := failureMessages[status.Account.ID]
+				if message == "" {
+					message = "authentication check failed"
+				}
+				jsonAccounts = append(jsonAccounts, map[string]any{
+					"account_id": status.Account.ID,
+					"name":       label,
+					"ok":         false,
+					"message":    message,
+				})
+				continue
+			}
 			// Error details already printed to stderr by fetchAccountsConcurrently.
-			fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): FAIL — see error above\n", status.Account.ID, label)
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): FAIL — see error above\n", status.Account.ID, label); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
 			continue
 		}
 
 		age := formatFetchAge(status, now)
-		fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): ok — %s\n", status.Account.ID, label, age)
+		if wantsJSON(cmd) {
+			jsonAccounts = append(jsonAccounts, map[string]any{
+				"account_id": status.Account.ID,
+				"name":       label,
+				"ok":         true,
+				"message":    age,
+			})
+			continue
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "account %s (%s): ok — %s\n", status.Account.ID, label, age); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
+	}
+
+	if wantsJSON(cmd) {
+		if err := writeJSONOutput(cmd, map[string]any{"ok": !hasFailure, "accounts": jsonAccounts}); err != nil {
+			return err
+		}
+		if hasFailure {
+			return renderedCommandError{err: fmt.Errorf("one or more accounts failed authentication check")}
+		}
+		return nil
 	}
 
 	if hasFailure {
