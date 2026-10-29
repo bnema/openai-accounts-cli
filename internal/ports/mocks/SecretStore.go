@@ -16,10 +16,19 @@ func NewMockSecretStore(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockSecretStore {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockSecretStore{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -62,7 +71,7 @@ type MockSecretStore_Delete_Call struct {
 // Delete is a helper method to define mock.On call
 //   - ctx context.Context
 //   - key string
-func (_e *MockSecretStore_Expecter) Delete(ctx interface{}, key interface{}) *MockSecretStore_Delete_Call {
+func (_e *MockSecretStore_Expecter) Delete(ctx any, key any) *MockSecretStore_Delete_Call {
 	return &MockSecretStore_Delete_Call{Call: _e.mock.On("Delete", ctx, key)}
 }
 
@@ -128,7 +137,7 @@ type MockSecretStore_Get_Call struct {
 // Get is a helper method to define mock.On call
 //   - ctx context.Context
 //   - key string
-func (_e *MockSecretStore_Expecter) Get(ctx interface{}, key interface{}) *MockSecretStore_Get_Call {
+func (_e *MockSecretStore_Expecter) Get(ctx any, key any) *MockSecretStore_Get_Call {
 	return &MockSecretStore_Get_Call{Call: _e.mock.On("Get", ctx, key)}
 }
 
@@ -186,7 +195,7 @@ type MockSecretStore_Put_Call struct {
 //   - ctx context.Context
 //   - key string
 //   - value string
-func (_e *MockSecretStore_Expecter) Put(ctx interface{}, key interface{}, value interface{}) *MockSecretStore_Put_Call {
+func (_e *MockSecretStore_Expecter) Put(ctx any, key any, value any) *MockSecretStore_Put_Call {
 	return &MockSecretStore_Put_Call{Call: _e.mock.On("Put", ctx, key, value)}
 }
 

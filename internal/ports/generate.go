@@ -1,3 +1,3 @@
 package ports
 
-//go:generate go run github.com/vektra/mockery/v3@v3.6.0 --config=../../.mockery.yaml
+//go:generate go run github.com/vektra/mockery/v3@v3.9.0 --config=../../.mockery.yaml

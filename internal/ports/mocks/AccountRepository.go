@@ -17,10 +17,19 @@ func NewMockAccountRepository(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockAccountRepository {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockAccountRepository{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -63,7 +72,7 @@ type MockAccountRepository_Delete_Call struct {
 // Delete is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id domain.AccountID
-func (_e *MockAccountRepository_Expecter) Delete(ctx interface{}, id interface{}) *MockAccountRepository_Delete_Call {
+func (_e *MockAccountRepository_Expecter) Delete(ctx any, id any) *MockAccountRepository_Delete_Call {
 	return &MockAccountRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, id)}
 }
 
@@ -129,7 +138,7 @@ type MockAccountRepository_GetByID_Call struct {
 // GetByID is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id domain.AccountID
-func (_e *MockAccountRepository_Expecter) GetByID(ctx interface{}, id interface{}) *MockAccountRepository_GetByID_Call {
+func (_e *MockAccountRepository_Expecter) GetByID(ctx any, id any) *MockAccountRepository_GetByID_Call {
 	return &MockAccountRepository_GetByID_Call{Call: _e.mock.On("GetByID", ctx, id)}
 }
 
@@ -196,7 +205,7 @@ type MockAccountRepository_List_Call struct {
 
 // List is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockAccountRepository_Expecter) List(ctx interface{}) *MockAccountRepository_List_Call {
+func (_e *MockAccountRepository_Expecter) List(ctx any) *MockAccountRepository_List_Call {
 	return &MockAccountRepository_List_Call{Call: _e.mock.On("List", ctx)}
 }
 
@@ -248,7 +257,7 @@ type MockAccountRepository_Save_Call struct {
 // Save is a helper method to define mock.On call
 //   - ctx context.Context
 //   - account domain.Account
-func (_e *MockAccountRepository_Expecter) Save(ctx interface{}, account interface{}) *MockAccountRepository_Save_Call {
+func (_e *MockAccountRepository_Expecter) Save(ctx any, account any) *MockAccountRepository_Save_Call {
 	return &MockAccountRepository_Save_Call{Call: _e.mock.On("Save", ctx, account)}
 }
 

@@ -18,10 +18,19 @@ func NewMockSelectionHistory(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockSelectionHistory {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockSelectionHistory{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -75,7 +84,7 @@ type MockSelectionHistory_RecentSelections_Call struct {
 // RecentSelections is a helper method to define mock.On call
 //   - ctx context.Context
 //   - since time.Time
-func (_e *MockSelectionHistory_Expecter) RecentSelections(ctx interface{}, since interface{}) *MockSelectionHistory_RecentSelections_Call {
+func (_e *MockSelectionHistory_Expecter) RecentSelections(ctx any, since any) *MockSelectionHistory_RecentSelections_Call {
 	return &MockSelectionHistory_RecentSelections_Call{Call: _e.mock.On("RecentSelections", ctx, since)}
 }
 
@@ -133,7 +142,7 @@ type MockSelectionHistory_RecordSelection_Call struct {
 //   - ctx context.Context
 //   - id domain.AccountID
 //   - selectedAt time.Time
-func (_e *MockSelectionHistory_Expecter) RecordSelection(ctx interface{}, id interface{}, selectedAt interface{}) *MockSelectionHistory_RecordSelection_Call {
+func (_e *MockSelectionHistory_Expecter) RecordSelection(ctx any, id any, selectedAt any) *MockSelectionHistory_RecordSelection_Call {
 	return &MockSelectionHistory_RecordSelection_Call{Call: _e.mock.On("RecordSelection", ctx, id, selectedAt)}
 }
 
